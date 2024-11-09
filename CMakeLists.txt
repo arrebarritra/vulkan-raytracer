@@ -5,40 +5,44 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Add all source files
-set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(SHADER_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
-set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+set(SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 
 file(GLOB SOURCE_FILES CONFIGURE_DEPENDS
-  ${SOURCE_DIR}/*.c
-  ${SOURCE_DIR}/*.cpp
+  "${SOURCE_DIR}/*.c"
+  "${SOURCE_DIR}/*.cpp"
 )
 
 file(GLOB HEADER_FILES CONFIGURE_DEPENDS
-  ${INCLUDE_DIR}/*.h
-  ${INCLUDE_DIR}/*.hpp
+  "${INCLUDE_DIR}/*.h"
+  "${INCLUDE_DIR}/*.hpp"
 )
 
 file(GLOB SHADER_FILES CONFIGURE_DEPENDS
-  ${SHADER_SOURCE_DIR}/*.vert
-  ${SHADER_SOURCE_DIR}/*.frag
-  ${SHADER_SOURCE_DIR}/*.comp
-  ${SHADER_SOURCE_DIR}/*.geom
-  ${SHADER_SOURCE_DIR}/*.tesc
-  ${SHADER_SOURCE_DIR}/*.tese
-  ${SHADER_SOURCE_DIR}/*.mesh
-  ${SHADER_SOURCE_DIR}/*.task
-  ${SHADER_SOURCE_DIR}/*.rgen
-  ${SHADER_SOURCE_DIR}/*.rchit
-  ${SHADER_SOURCE_DIR}/*.rmiss
+  "${SHADER_SOURCE_DIR}/*.vert"
+  "${SHADER_SOURCE_DIR}/*.frag"
+  "${SHADER_SOURCE_DIR}/*.comp"
+  "${SHADER_SOURCE_DIR}/*.geom"
+  "${SHADER_SOURCE_DIR}/*.tesc"
+  "${SHADER_SOURCE_DIR}/*.tese"
+  "${SHADER_SOURCE_DIR}/*.mesh"
+  "${SHADER_SOURCE_DIR}/*.task"
+  "${SHADER_SOURCE_DIR}/*.rgen"
+  "${SHADER_SOURCE_DIR}/*.rchit"
+  "${SHADER_SOURCE_DIR}/*.rahit"
+  "${SHADER_SOURCE_DIR}/*.rmiss"
+  "${SHADER_SOURCE_DIR}/*.rint"
 )
 set_source_files_properties(${SHADER_FILES} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 source_group("Source files" FILES ${SOURCE_FILES})
 source_group("Header files" FILES ${HEADER_FILES})
 source_group("Shader files" FILES ${SHADER_FILES})
+
+include_directories(PRIVATE ${INCLUDE_DIR})
 add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES})
 
 string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
