@@ -43,6 +43,10 @@ protected:
 	bool framebufferResized = false;
 	bool minimised = true;
 
+	// Devices
+	vk::PhysicalDevice physicalDevice;
+	vk::UniqueDevice device;
+
 	// Swapchains
 	uint32_t framesInFlight;
 	vk::ImageUsageFlags swapchainImUsage;
@@ -52,11 +56,6 @@ protected:
 	vk::UniqueSwapchainKHR swapchain;
     //vk::UniqueSwapchainKHR oldSwapchain;
 	std::vector<vk::Image> swapchainImages;
-	std::vector<vk::UniqueImageView> swapchainImageViews;
-
-	// Devices
-	vk::PhysicalDevice physicalDevice;
-	vk::UniqueDevice device;
 
 	// Queues
 	vk::Queue graphicsQueue;

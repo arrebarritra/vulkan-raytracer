@@ -6,7 +6,7 @@
 
 namespace vkrt {
 
-class Raytracer : Application {
+class Raytracer : public Application {
 public:
 	Raytracer(char* test);
 	~Raytracer() = default;

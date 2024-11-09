@@ -114,9 +114,8 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU)
 
 		bool presSupported = false;
 		vk::QueueFlags supportedQueues;
-		uint32_t currQueueFamilyIndex = -1u;
+		uint32_t currQueueFamilyIndex = 0u;
 		for (const auto& qfp : pd.getQueueFamilyProperties()) {
-			currQueueFamilyIndex++;
 			supportedQueues |= qfp.queueFlags;
 			presSupported = presSupported || pd.getSurfaceSupportKHR(currQueueFamilyIndex, surface.get());
 
@@ -126,6 +125,7 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU)
 				eligibleDevices.push_back(pd);
 				break;
 			}
+			currQueueFamilyIndex++;
 		}
 	}
 	if (eligibleDevices.size() == 0) {
@@ -161,6 +161,9 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU)
 				  return memA < memB;
 			  });
 	physicalDevice = eligibleDevices.front();
+#ifndef NDEBUG
+	LOG_INFO("Selected device: %s", physicalDevice.getProperties().deviceName);
+#endif
 }
 
 std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bool separateComputeQueue) {
@@ -168,9 +171,8 @@ std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bo
 	std::array selectedQueues{ -1u, -1u, -1u };
 
 	// Search for graphics queue
-	uint32_t currQueueIndex = -1u;
+	uint32_t currQueueIndex = 0u;
 	for (const auto& qfp : qfps) {
-		currQueueIndex++;
 		if ((qfp.queueFlags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer)) &&
 			physicalDevice.getSurfaceSupportKHR(currQueueIndex, surface.get())) {
 			selectedQueues[0] = currQueueIndex;
@@ -187,6 +189,7 @@ std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bo
 				selectedQueues[2] = currQueueIndex;
 			}
 		}
+		currQueueIndex++;
 	}
 
 	return selectedQueues;
@@ -225,25 +228,10 @@ void Application::createSwapchain() {
 		.setImageColorSpace(swapchainFormat.colorSpace)
 		.setPresentMode(presentMode);
 
+	swapchain.reset();
 	swapchain = device->createSwapchainKHRUnique(swapchainCI);
 
 	swapchainImages = device->getSwapchainImagesKHR(swapchain.get());
-	swapchainImageViews = std::vector<vk::UniqueImageView>(framesInFlight);
-
-	std::transform(swapchainImages.begin(), swapchainImages.end(), swapchainImageViews.begin(),
-				   [this](const vk::Image& im) mutable {
-					   auto imViewCreateInfo = vk::ImageViewCreateInfo{}
-						   .setImage(im)
-						   .setViewType(vk::ImageViewType::e2D)
-						   .setFormat(swapchainFormat.format)
-						   .setSubresourceRange(vk::ImageSubresourceRange{}
-												.setBaseMipLevel(0u)
-												.setLevelCount(1u)
-												.setBaseArrayLayer(0u)
-												.setLayerCount(1u)
-												.setAspectMask(vk::ImageAspectFlagBits::eColor));
-					   return device->createImageViewUnique(imViewCreateInfo);
-				   });
 }
 
 void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFormatKHR>& preferredFormats,
@@ -251,8 +239,8 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 	auto& availableFormats = physicalDevice.getSurfaceFormatsKHR(surface.get());
 	auto& availablePresModes = physicalDevice.getSurfacePresentModesKHR(surface.get());
 
-	auto& format = availableFormats[0];
-	auto& presMode = availablePresModes[0];
+	swapchainFormat = availableFormats[0];
+	presentMode = availablePresModes[0];
 
 	// Find format
 	for (const auto& pf : preferredFormats) {
@@ -260,17 +248,20 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 									[pf](vk::SurfaceFormatKHR format) {
 										return format.format == pf.format && format.colorSpace == pf.colorSpace;
 									}); it != availableFormats.end()) {
-			format = *it;
+			swapchainFormat = *it;
 			break;
 		};
 	}
 
+	// Find presentation mode
 	for (const auto& ppm : preferredPresModes) {
 		if (auto& it = std::find(availablePresModes.begin(), availablePresModes.end(), ppm); it != availablePresModes.end()) {
-			presMode = *it;
+			presentMode = *it;
 			break;
 		};
 	}
+
+
 }
 
 void Application::recreateSwapchain()
@@ -301,18 +292,18 @@ void Application::renderLoop()
 	// Create reusable fences and semaphores
 	std::vector<vk::UniqueSemaphore> imageAcquiredSemaphores(framesInFlight);
 	std::generate(imageAcquiredSemaphores.begin(), imageAcquiredSemaphores.end(),
-				  [d = device.get()]() {
-					  return d.createSemaphoreUnique(vk::SemaphoreCreateInfo{});
+				  [this]() {
+					  return device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 				  });
 	std::vector<vk::UniqueSemaphore> renderFinishedSemaphores(framesInFlight);
 	std::generate(renderFinishedSemaphores.begin(), renderFinishedSemaphores.end(),
-				  [d = device.get()]() {
-					  return d.createSemaphoreUnique(vk::SemaphoreCreateInfo{});
+				  [this]() {
+					  return device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 				  });
 	std::vector<vk::UniqueFence> frameFinishedFences(framesInFlight);
 	std::generate(frameFinishedFences.begin(), frameFinishedFences.end(),
-				  [d = device.get()]() {
-					  return d.createFenceUnique(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+				  [this]() {
+					  return device->createFenceUnique(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
 				  });
 
 	// Render loop
