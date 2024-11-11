@@ -13,9 +13,15 @@ public:
 
 private:
 	static const std::vector<const char*> raytracingRequiredExtensions;
-	static const vk::QueueFlags requiredQueues;
 
-	std::array<vk::QueueFlags, 1> preferExclusiveQueues{ vk::QueueFlagBits::eTransfer };
+	vk::UniqueCommandPool commandPool;
+	std::array<vk::UniqueCommandBuffer, 3> cmdBfrs;
+
+	char* imData[3];
+	std::unique_ptr<Buffer> buffer[3];
+
+
+	void createCommandPools() override;
 	void drawFrame(uint32_t frameIdx, vk::Semaphore imageAcquiredSemaphore, vk::Semaphore renderFinishedSemaphore,
 		   vk::Fence frameFinishedFence) override;
 };

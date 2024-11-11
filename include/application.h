@@ -1,9 +1,13 @@
 #pragma once
 
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_shared.hpp>
 #include <GLFW/glfw3.h>
 
 #include <optional>
+
+#include <devicememorymanager.h>
+#include <managedresource.h>
 
 namespace vkrt {
 
@@ -46,6 +50,9 @@ protected:
 	// Devices
 	vk::PhysicalDevice physicalDevice;
 	vk::UniqueDevice device;
+	
+	// Memory management
+	std::unique_ptr<DeviceMemoryManager> dmm;
 
 	// Swapchains
 	uint32_t framesInFlight;
@@ -58,10 +65,11 @@ protected:
 	std::vector<vk::Image> swapchainImages;
 
 	// Queues
-	vk::Queue graphicsQueue;
-	std::optional<vk::Queue> computeQueue, transferQueue;
+	std::tuple<uint32_t, vk::Queue> graphicsQueue;
+	std::optional<std::tuple<uint32_t, vk::Queue>> computeQueue, transferQueue;
 
 	virtual void handleResize();
+	virtual void createCommandPools() = 0;
 	virtual void drawFrame(uint32_t frameIdx, vk::Semaphore imageAcquiredSemaphore, vk::Semaphore renderFinishedSemaphore,
 						vk::Fence frameFinishedFence) = 0;
 

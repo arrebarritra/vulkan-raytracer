@@ -45,12 +45,13 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 			  });
 	selectPhysicalDevice(preferDedicatedGPU);
 	createDevice(separateTransferQueue, separateComputeQueue);
+	dmm = std::make_unique<DeviceMemoryManager>(device.get(), physicalDevice);
+
 	determineSwapchainSettings(preferredFormats, preferredPresModes);
 	createSwapchain();
 }
 
-Application::~Application()
-{
+Application::~Application() {
 	glfwDestroyWindow(window);
 }
 
@@ -79,8 +80,7 @@ void Application::createSurface() {
 	surface = vk::UniqueSurfaceKHR(surfaceTmp, instance.get());
 }
 
-void Application::selectPhysicalDevice(bool preferDedicatedGPU)
-{
+void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 	auto& physicalDevices = instance->enumeratePhysicalDevices();
 	std::vector<vk::PhysicalDevice> eligibleDevices;
 	eligibleDevices.reserve(physicalDevices.size());
@@ -212,9 +212,9 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 		.setQueueCreateInfos(queueCIs);
 	device = physicalDevice.createDeviceUnique(deviceCI);
 
-	graphicsQueue = device->getQueue(queueFamilyIndices[0], 0);
-	if (separateTransferQueue) transferQueue = device->getQueue(queueFamilyIndices[1], 0);
-	if (separateComputeQueue) computeQueue = device->getQueue(queueFamilyIndices[2], 0);
+	graphicsQueue = { queueFamilyIndices[0], device->getQueue(queueFamilyIndices[0], 0) };
+	if (separateTransferQueue) transferQueue = { queueFamilyIndices[1], device->getQueue(queueFamilyIndices[1], 0) };
+	if (separateComputeQueue) computeQueue = { queueFamilyIndices[2], device->getQueue(queueFamilyIndices[2], 0) };
 }
 
 void Application::createSwapchain() {
@@ -235,7 +235,7 @@ void Application::createSwapchain() {
 }
 
 void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFormatKHR>& preferredFormats,
-								  const vk::ArrayProxy<vk::PresentModeKHR>& preferredPresModes) {
+											 const vk::ArrayProxy<vk::PresentModeKHR>& preferredPresModes) {
 	auto& availableFormats = physicalDevice.getSurfaceFormatsKHR(surface.get());
 	auto& availablePresModes = physicalDevice.getSurfacePresentModesKHR(surface.get());
 
@@ -264,12 +264,11 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 
 }
 
-void Application::recreateSwapchain()
-{
+void Application::recreateSwapchain() {
 	glfwGetWindowSize(window, reinterpret_cast<int*>(&width), reinterpret_cast<int*>(&height));
-	if (width == 0 || height == 0) 
+	if (width == 0 || height == 0)
 		minimised = true;
-	else 
+	else
 		minimised = false;
 
 	device->waitIdle();
@@ -287,8 +286,7 @@ void Application::framebufferResizeCallback(GLFWwindow* window, int width, int h
 	app->framebufferResized = true;
 }
 
-void Application::renderLoop()
-{
+void Application::renderLoop() {
 	// Create reusable fences and semaphores
 	std::vector<vk::UniqueSemaphore> imageAcquiredSemaphores(framesInFlight);
 	std::generate(imageAcquiredSemaphores.begin(), imageAcquiredSemaphores.end(),
@@ -315,8 +313,7 @@ void Application::renderLoop()
 		try {
 			auto imageIndexRV = device->acquireNextImageKHR(swapchain.get(), std::numeric_limits<uint32_t>::max(), imageAcquiredSemaphores[frameIdx].get(), nullptr);
 			imageIndex = imageIndexRV.value;
-		}
-		catch (vk::OutOfDateKHRError const& e) {
+		} catch (vk::OutOfDateKHRError const& e) {
 			handleResize();
 			continue;
 		}
@@ -331,11 +328,10 @@ void Application::renderLoop()
 			.setPSwapchains(&swapchain.get())
 			.setPImageIndices(&imageIndex);
 		try {
-			const auto& res = graphicsQueue.presentKHR(presentInfo);
+			const auto& res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);
 			if (res == vk::Result::eSuboptimalKHR || framebufferResized)
 				handleResize();
-		}
-		catch (vk::OutOfDateKHRError const& e) {
+		} catch (vk::OutOfDateKHRError const& e) {
 			handleResize();
 		}
 
