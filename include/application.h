@@ -7,7 +7,9 @@
 #include <optional>
 
 #include <devicememorymanager.h>
-#include <managedresource.h>
+#include <buffer.h>
+#include <image.h>
+#include <resourcecopyhandler.h>
 
 namespace vkrt {
 
@@ -49,10 +51,11 @@ protected:
 
 	// Devices
 	vk::PhysicalDevice physicalDevice;
-	vk::UniqueDevice device;
+	vk::SharedDevice device;
 	
-	// Memory management
+	// Memory and resource management
 	std::unique_ptr<DeviceMemoryManager> dmm;
+	std::unique_ptr<ResourceCopyHandler> rch;
 
 	// Swapchains
 	uint32_t framesInFlight;
@@ -70,8 +73,8 @@ protected:
 
 	virtual void handleResize();
 	virtual void createCommandPools() = 0;
-	virtual void drawFrame(uint32_t frameIdx, vk::Semaphore imageAcquiredSemaphore, vk::Semaphore renderFinishedSemaphore,
-						vk::Fence frameFinishedFence) = 0;
+	virtual void drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
+						vk::SharedFence frameFinishedFence) = 0;
 
 private:
 	// Device selection parameters

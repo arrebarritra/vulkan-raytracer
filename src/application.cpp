@@ -45,7 +45,9 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 			  });
 	selectPhysicalDevice(preferDedicatedGPU);
 	createDevice(separateTransferQueue, separateComputeQueue);
-	dmm = std::make_unique<DeviceMemoryManager>(device.get(), physicalDevice);
+
+	dmm = std::make_unique<DeviceMemoryManager>(device, physicalDevice);
+	rch = std::make_unique<ResourceCopyHandler>(device, transferQueue ? *transferQueue : graphicsQueue);
 
 	determineSwapchainSettings(preferredFormats, preferredPresModes);
 	createSwapchain();
@@ -58,7 +60,9 @@ Application::~Application() {
 void Application::createInstance() {
 	auto& appInfo = vk::ApplicationInfo{}
 		.setPApplicationName(appName.c_str())
-		.setApiVersion(apiVersion);
+		.setApiVersion(apiVersion)
+		.setApplicationVersion(0)
+		.setPEngineName("vkrt");
 	auto& instanceCI = vk::InstanceCreateInfo{}
 		.setPApplicationInfo(&appInfo)
 		.setPEnabledExtensionNames(instanceExtensions)
@@ -76,15 +80,14 @@ void Application::createWindow() {
 
 void Application::createSurface() {
 	VkSurfaceKHR surfaceTmp{};
-	CHECK_VULKAN_RESULT(glfwCreateWindowSurface(instance.get(), window, nullptr, &surfaceTmp));
-	surface = vk::UniqueSurfaceKHR(surfaceTmp, instance.get());
+	CHECK_VULKAN_RESULT(glfwCreateWindowSurface(*instance, window, nullptr, &surfaceTmp));
+	surface = vk::UniqueSurfaceKHR(surfaceTmp, *instance);
 }
 
 void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 	auto& physicalDevices = instance->enumeratePhysicalDevices();
 	std::vector<vk::PhysicalDevice> eligibleDevices;
 	eligibleDevices.reserve(physicalDevices.size());
-	bool deviceSelected = false;
 	auto& queueFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
 
 	for (const auto& pd : physicalDevices) {
@@ -117,7 +120,7 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 		uint32_t currQueueFamilyIndex = 0u;
 		for (const auto& qfp : pd.getQueueFamilyProperties()) {
 			supportedQueues |= qfp.queueFlags;
-			presSupported = presSupported || pd.getSurfaceSupportKHR(currQueueFamilyIndex, surface.get());
+			presSupported = presSupported || pd.getSurfaceSupportKHR(currQueueFamilyIndex, *surface);
 
 			// Are all required queues supported?
 			bool queuesSupported = (queueFlags | supportedQueues) == supportedQueues;
@@ -174,18 +177,18 @@ std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bo
 	uint32_t currQueueIndex = 0u;
 	for (const auto& qfp : qfps) {
 		if ((qfp.queueFlags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer)) &&
-			physicalDevice.getSurfaceSupportKHR(currQueueIndex, surface.get())) {
+			physicalDevice.getSurfaceSupportKHR(currQueueIndex, *surface)) {
 			selectedQueues[0] = currQueueIndex;
 		}
 		if (separateTransferQueue) {
 			if ((qfp.queueFlags & vk::QueueFlagBits::eTransfer) &&
-				~(qfp.queueFlags & vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute)) {
+				!(qfp.queueFlags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute))) {
 				selectedQueues[1] = currQueueIndex;
 			}
 		}
 		if (separateComputeQueue) {
 			if ((qfp.queueFlags & vk::QueueFlagBits::eCompute) &&
-				~(qfp.queueFlags & vk::QueueFlagBits::eGraphics)) {
+				!(qfp.queueFlags & vk::QueueFlagBits::eGraphics)) {
 				selectedQueues[2] = currQueueIndex;
 			}
 		}
@@ -210,7 +213,8 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 	auto& deviceCI = vk::DeviceCreateInfo{}
 		.setPEnabledExtensionNames(deviceExtensions)
 		.setQueueCreateInfos(queueCIs);
-	device = physicalDevice.createDeviceUnique(deviceCI);
+	vk::Device deviceTmp = physicalDevice.createDevice(deviceCI);
+	device = vk::SharedHandle(deviceTmp);
 
 	graphicsQueue = { queueFamilyIndices[0], device->getQueue(queueFamilyIndices[0], 0) };
 	if (separateTransferQueue) transferQueue = { queueFamilyIndices[1], device->getQueue(queueFamilyIndices[1], 0) };
@@ -219,7 +223,7 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 
 void Application::createSwapchain() {
 	auto& swapchainCI = vk::SwapchainCreateInfoKHR{}
-		.setSurface(surface.get())
+		.setSurface(*surface)
 		.setImageExtent(vk::Extent2D{ width,height })
 		.setMinImageCount(framesInFlight)
 		.setImageArrayLayers(1u)
@@ -231,13 +235,13 @@ void Application::createSwapchain() {
 	swapchain.reset();
 	swapchain = device->createSwapchainKHRUnique(swapchainCI);
 
-	swapchainImages = device->getSwapchainImagesKHR(swapchain.get());
+	swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 }
 
 void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFormatKHR>& preferredFormats,
 											 const vk::ArrayProxy<vk::PresentModeKHR>& preferredPresModes) {
-	auto& availableFormats = physicalDevice.getSurfaceFormatsKHR(surface.get());
-	auto& availablePresModes = physicalDevice.getSurfacePresentModesKHR(surface.get());
+	auto& availableFormats = physicalDevice.getSurfaceFormatsKHR(*surface);
+	auto& availablePresModes = physicalDevice.getSurfacePresentModesKHR(*surface);
 
 	swapchainFormat = availableFormats[0];
 	presentMode = availablePresModes[0];
@@ -288,44 +292,43 @@ void Application::framebufferResizeCallback(GLFWwindow* window, int width, int h
 
 void Application::renderLoop() {
 	// Create reusable fences and semaphores
-	std::vector<vk::UniqueSemaphore> imageAcquiredSemaphores(framesInFlight);
+	std::vector<vk::SharedSemaphore> imageAcquiredSemaphores(framesInFlight);
 	std::generate(imageAcquiredSemaphores.begin(), imageAcquiredSemaphores.end(),
 				  [this]() {
-					  return device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
+					  return vk::SharedSemaphore(device->createSemaphore(vk::SemaphoreCreateInfo{}), device);
 				  });
-	std::vector<vk::UniqueSemaphore> renderFinishedSemaphores(framesInFlight);
+	std::vector<vk::SharedSemaphore> renderFinishedSemaphores(framesInFlight);
 	std::generate(renderFinishedSemaphores.begin(), renderFinishedSemaphores.end(),
 				  [this]() {
-					  return device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
+					  return vk::SharedSemaphore(device->createSemaphore(vk::SemaphoreCreateInfo{}), device);
 				  });
-	std::vector<vk::UniqueFence> frameFinishedFences(framesInFlight);
+	std::vector<vk::SharedFence> frameFinishedFences(framesInFlight);
 	std::generate(frameFinishedFences.begin(), frameFinishedFences.end(),
 				  [this]() {
-					  return device->createFenceUnique(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+					  return vk::SharedFence(device->createFence(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled)), device);
 				  });
 
 	// Render loop
 	uint32_t frameIdx = 0u;
 	while (!glfwWindowShouldClose(window)) {
-		CHECK_VULKAN_RESULT(device->waitForFences(frameFinishedFences[frameIdx].get(), vk::True, std::numeric_limits<uint64_t>::max()));
+		CHECK_VULKAN_RESULT(device->waitForFences(*frameFinishedFences[frameIdx], vk::True, std::numeric_limits<uint64_t>::max()));
 
 		uint32_t imageIndex;
 		try {
-			auto imageIndexRV = device->acquireNextImageKHR(swapchain.get(), std::numeric_limits<uint32_t>::max(), imageAcquiredSemaphores[frameIdx].get(), nullptr);
+			auto imageIndexRV = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint32_t>::max(), *imageAcquiredSemaphores[frameIdx], nullptr);
 			imageIndex = imageIndexRV.value;
 		} catch (vk::OutOfDateKHRError const& e) {
 			handleResize();
 			continue;
 		}
 
-		device->resetFences(frameFinishedFences[frameIdx].get());
-		drawFrame(frameIdx, imageAcquiredSemaphores[frameIdx].get(), renderFinishedSemaphores[frameIdx].get(), frameFinishedFences[frameIdx].get());
+		device->resetFences(*frameFinishedFences[frameIdx]);
+		drawFrame(frameIdx, imageAcquiredSemaphores[frameIdx], renderFinishedSemaphores[frameIdx], frameFinishedFences[frameIdx]);
 
+		const vk::Semaphore& renderFinishedSemaphore = *(renderFinishedSemaphores[frameIdx]);
 		auto& presentInfo = vk::PresentInfoKHR{}
-			.setWaitSemaphoreCount(1u)
-			.setPWaitSemaphores(&renderFinishedSemaphores[frameIdx].get())
-			.setSwapchainCount(1u)
-			.setPSwapchains(&swapchain.get())
+			.setWaitSemaphores(renderFinishedSemaphore)
+			.setSwapchains(*swapchain)
 			.setPImageIndices(&imageIndex);
 		try {
 			const auto& res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);

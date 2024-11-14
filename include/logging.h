@@ -21,5 +21,6 @@ if (vk::Result(res) != vk::Result::eSuccess) { \
 	throw std::runtime_error("Exited due to Vulkan non success");  \
 }
 
+// TODO: logging levels for debug/release
 #define LOG_ERROR(fmt, ...) fprintf(stderr, "Error: " fmt "\n", __VA_ARGS__);
 #define LOG_INFO(fmt, ...) fprintf(stdout, "Info: " fmt "\n", __VA_ARGS__);

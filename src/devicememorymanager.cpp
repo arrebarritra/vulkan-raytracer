@@ -4,12 +4,14 @@ namespace vkrt {
 
 const std::map<vk::MemoryPropertyFlags, vk::DeviceSize> DeviceMemoryManager::storageBlockSizes = {
 	{ MemoryStorage::DevicePersistent, 256u * (1u << 20u) },
-	{ MemoryStorage::DevicePersistent, 64u * (1u << 20u) }
+	{ MemoryStorage::DevicePersistent, 64u * (1u << 20u) },
+	{ MemoryStorage::HostStaging, 256u * (1u << 20u) },
+	{ MemoryStorage::HostDownload, 256u * (1u << 20u) }
 };
 
-DeviceMemoryManager::DeviceMemoryManager(vk::Device device, vk::PhysicalDevice physicalDevice)
-	: physicalDevice(physicalDevice)
-	, device(device)
+DeviceMemoryManager::DeviceMemoryManager(vk::SharedDevice device, vk::PhysicalDevice physicalDevice)
+	: device(device)
+	, physicalDevice(physicalDevice)
 	, allocations(std::vector<std::vector<std::unique_ptr<Allocation>>>(physicalDevice.getMemoryProperties().memoryTypeCount))
 {
 	allocBlockSizes = std::vector<vk::DeviceSize>(physicalDevice.getMemoryProperties().memoryTypeCount);
@@ -21,11 +23,11 @@ void DeviceMemoryManager::setAllocBlockSizes() {
 
 	for (uint32_t memIdx = 0u; memIdx < memoryProperties.memoryTypeCount; memIdx++) {
 		auto memPropFlags = memoryProperties.memoryTypes[memIdx].propertyFlags;
-
-		vk::DeviceSize maxBlockSize = memoryProperties.memoryHeaps[memoryProperties.memoryTypes[memIdx].heapIndex].size / 4u;
+		auto memoryBytes = memoryProperties.memoryHeaps[memoryProperties.memoryTypes[memIdx].heapIndex].size;
+		vk::DeviceSize maxBlockSize = memoryBytes > (1 << 30) ? 256u * (1u << 20u) : memoryBytes / 8u;
 		vk::DeviceSize blockSize = 256u * (1u << 20u);
 		try {
-			storageBlockSizes.at(memPropFlags);
+			blockSize = storageBlockSizes.at(memPropFlags);
 		} catch (...) {}
 
 		allocBlockSizes[memIdx] = std::min(blockSize, maxBlockSize);
@@ -45,73 +47,104 @@ uint32_t DeviceMemoryManager::findMemoryTypeIdx(const vk::MemoryRequirements& me
 	throw MemoryTypeUnavailableError();
 }
 
-void DeviceMemoryManager::allocateDeviceMemory(vk::DeviceSize size, uint32_t memTypeIdx) {
-	auto& memoryAllocInfo = vk::MemoryAllocateInfo{}
-		.setAllocationSize(size)
-		.setMemoryTypeIndex(memTypeIdx);
-	auto& alloc = std::make_unique<Allocation>(device.allocateMemoryUnique(memoryAllocInfo), size);
-	allocations[memTypeIdx].push_back(std::move(alloc));
-}
-
-std::unique_ptr<DeviceMemoryManager::MemoryBlock> vkrt::DeviceMemoryManager::allocateResource(const vk::MemoryRequirements& memReqs, vk::MemoryPropertyFlags memProps) {
+std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::allocateResource(const vk::MemoryRequirements& memReqs, vk::MemoryPropertyFlags memProps) {
 	auto memTypeIdx = findMemoryTypeIdx(memReqs, memProps);
-	if (allocations[memTypeIdx].size() == 0) allocateDeviceMemory(allocBlockSizes[memTypeIdx], memTypeIdx);
+	if (allocations[memTypeIdx].size() == 0) allocations[memTypeIdx].push_back(std::unique_ptr<Allocation>(new Allocation(*this, memTypeIdx, memProps)));  // TODO: go back to make_unique if friending can work
 
 	try {
-		return allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs, memTypeIdx);
+		return allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs);
 	} catch (Allocation::SubAllocationFailedError& e) {
-		allocateDeviceMemory(allocBlockSizes[memTypeIdx], memTypeIdx);
-		return allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs, memTypeIdx);
+		allocations[memTypeIdx].push_back(std::unique_ptr<Allocation>(new Allocation(*this, memTypeIdx, memProps)));
+		return allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs);
 	}
 }
 
-DeviceMemoryManager::MemoryBlock::MemoryBlock(vk::DeviceMemory memory, vk::DeviceSize size, vk::DeviceSize offset)
-	: memory(memory)
-	, size(size)
-	, offset(offset)
-{}
+// TODO account for linear/non-linear resourcesk
+DeviceMemoryManager::MemoryBlock::MemoryBlock(Allocation& allocation, vk::DeviceSize offset, vk::DeviceSize size, vk::DeviceSize padding, char* mapping)
+	: allocation(allocation), offset(offset), size(size), padding(padding), mapping(mapping) {}
 
 DeviceMemoryManager::MemoryBlock::~MemoryBlock() {
-	if (next) {
-		if (next->size == 0u) next->offset = offset; // bring back offset pointer if removing last element
-		next->prev = prev;
-	}
+	if (next) next->prev = prev;
 	if (prev) prev->next = next;
+
+	allocation.syncRemoveMemoryBlock(this);
 }
 
 void DeviceMemoryManager::MemoryBlock::append(MemoryBlock* mb) {
-	next->prev = mb;
+	if (next) {
+		mb->next = next;
+		next->prev = mb;
+	} else {
+		allocation.tail = mb;
+	}
+	mb->prev = this;
 	next = mb;
 }
 
 void DeviceMemoryManager::MemoryBlock::prepend(MemoryBlock* mb) {
-	if (size == 0u) offset += mb->size; // move offset if we are prepending to tail
-	prev->next = mb;
+	if (prev) {
+		mb->prev = prev;
+		prev->next = mb;
+	} else {
+		allocation.head = mb;
+	}
+	mb->next = this;
 	prev = mb;
 }
 
-DeviceMemoryManager::Allocation::Allocation(vk::UniqueDeviceMemory memory, vk::DeviceSize size)
-	: memory(std::move(memory))
-	, size(size)
-	, head(memory.get(), 0u, 0u)
-	, tail(memory.get(), 0u, 0u)
+DeviceMemoryManager::Allocation::Allocation(DeviceMemoryManager& dmm, uint32_t memTypeIdx, vk::MemoryPropertyFlags memProps)
+	: dmm(dmm), memTypeIdx(memTypeIdx), memProps(memProps), size(dmm.allocBlockSizes[memTypeIdx]), offset(0u)
 {
-	head.next = &tail;
-	tail.prev = &head;
+	auto& memoryAllocInfo = vk::MemoryAllocateInfo{}
+		.setAllocationSize(size)
+		.setMemoryTypeIndex(memTypeIdx);
+	memory = dmm.device->allocateMemoryUnique(memoryAllocInfo);
+	if (memProps & vk::MemoryPropertyFlagBits::eHostVisible) mapping = static_cast<char*>(dmm.device->mapMemory(memory.get(), 0u, size));
 }
 
-std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocation::allocateMemoryBlock(const vk::MemoryRequirements& memReqs, uint32_t memTypeIdx) {
-	// Fit allocation to required alignment
-	auto offset = tail.offset % memReqs.alignment ? \
-		tail.offset + memReqs.alignment - (tail.offset % memReqs.alignment) : tail.offset;
-	auto blockSize = memReqs.size % memReqs.alignment ? \
-		memReqs.size + memReqs.alignment - (memReqs.size % memReqs.alignment) : memReqs.size;
-	if (tail.offset + blockSize > size) { throw SubAllocationFailedError(); }
+DeviceMemoryManager::Allocation::~Allocation() {
+	// All suballocations should have been destroyed, but check for sanity
+	assert(head == nullptr && tail == nullptr);
 
-	auto mb = std::make_unique<MemoryBlock>(memory.get(), blockSize, tail.offset);
-	tail.prepend(mb.get());
+	if (mapping) {
+		if (!(memProps & vk::MemoryPropertyFlagBits::eHostCoherent))
+			dmm.device->flushMappedMemoryRanges(vk::MappedMemoryRange{}
+												.setMemory(*memory)
+												.setOffset(0u)
+												.setSize(vk::WholeSize));
+		dmm.device->unmapMemory(memory.get());
+	}
+}
+
+std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocation::allocateMemoryBlock(const vk::MemoryRequirements& memReqs) {
+	// Fit allocation to required alignment
+	auto blockOffset = offset % memReqs.alignment ? \
+		offset + memReqs.alignment - (offset % memReqs.alignment) : offset;
+	auto blockPadding = (memReqs.alignment - memReqs.size % memReqs.alignment) % memReqs.alignment;
+	if (blockOffset + memReqs.size + blockPadding > size) { throw SubAllocationFailedError(); } // TODO: expand allocation strategies
+
+	auto mb = std::make_unique<MemoryBlock>(*this, blockOffset, memReqs.size, blockPadding, mapping);
+
+	assert((head == nullptr && tail == nullptr) || (head != nullptr && tail != nullptr));
+	if (head == nullptr) {
+		head = mb.get();
+		tail = mb.get();
+	} else {
+		tail->prepend(mb.get());
+		offset = mb->offset + mb->size + mb->padding;
+	}
 
 	return mb;
+}
+
+void DeviceMemoryManager::Allocation::syncRemoveMemoryBlock(MemoryBlock* mb)
+{
+	if (mb == tail) {
+		tail = mb->prev;
+		offset = tail ? tail->offset + tail->size + tail->padding : 0;
+	}
+	if (mb == head)
+		head = mb->next;
 }
 
 }
