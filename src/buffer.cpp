@@ -2,14 +2,14 @@
 
 namespace vkrt {
 
-Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::BufferCreateInfo bufferCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps)
+Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::BufferCreateInfo bufferCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
 	: ManagedResource(device, dmm, rch, memProps)
 	, bufferCI(bufferCI
 			   .setUsage(bufferCI.usage | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst))  // Force transfer flags to be set to enable copying
+	, buffer(device->createBufferUnique(bufferCI))
 {
-	buffer = device->createBufferUnique(bufferCI);
 	auto& memReqs = device->getBufferMemoryRequirements(*buffer);
-	memBlock = dmm.allocateResource(memReqs, memProps);
+	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindBufferMemory(*buffer, *memBlock->allocation.memory, memBlock->offset);
 	if (data.size() != 0) write(data);
 }

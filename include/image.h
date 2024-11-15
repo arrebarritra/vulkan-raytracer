@@ -18,7 +18,8 @@ constexpr vk::MemoryPropertyFlags Texture = MemoryStorage::DevicePersistent;
 class Buffer;
 class Image : public ManagedResource {
 public:
-	Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data = nullptr, const vk::MemoryPropertyFlags& memProps = ImageMemoryUsage::Auto);
+	Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data = nullptr,
+		  const vk::MemoryPropertyFlags& memProps = ImageMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Heuristic);
 	~Image();
 
 	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) override;

@@ -3,15 +3,15 @@
 
 namespace vkrt {
 
-Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps)
-	: ManagedResource(device, dmm, rch, memProps),
-	imageCI(imageCI
+Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
+	: ManagedResource(device, dmm, rch, memProps)
+	, imageCI(imageCI
 			.setUsage(imageCI.usage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst)  // Force transfer flags to be set to enable copying
 			.setTiling(vk::ImageTiling::eOptimal)) // Only allow optimal tiling images for simplicity, defer to buffer for linear images
+	, image(device->createImageUnique(imageCI))
 {
-	image = device->createImageUnique(imageCI);
 	auto& memReqs = device->getImageMemoryRequirements(*image);
-	memBlock = dmm.allocateResource(memReqs, memProps);
+	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindImageMemory(*image, *memBlock->allocation.memory, memBlock->offset);
 	if (data.size() != 0) write(data);
 }

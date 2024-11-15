@@ -8,6 +8,7 @@
 #include <map>
 #include <tuple>
 #include <optional>
+#include <functional>
 
 namespace vkrt {
 
@@ -55,6 +56,10 @@ public:
 		void prepend(MemoryBlock* mb);
 	};
 
+	enum class AllocationStrategy {
+		Fast, Optimal, Balanced, Heuristic
+	};
+
 	struct Allocation {
 		friend class DeviceMemoryManager;
 		friend struct MemoryBlock;
@@ -71,7 +76,7 @@ public:
 		Allocation(DeviceMemoryManager& dmm, uint32_t memTypeIdx, vk::MemoryPropertyFlags memProps);
 		~Allocation();
 
-		std::unique_ptr<MemoryBlock> allocateMemoryBlock(const vk::MemoryRequirements& memReqs);
+		std::unique_ptr<MemoryBlock> allocateMemoryBlock(const vk::MemoryRequirements& memReqs, AllocationStrategy as);
 		void syncRemoveMemoryBlock(MemoryBlock* mb);
 
 		class SubAllocationFailedError : std::exception {
@@ -82,9 +87,12 @@ public:
 		MemoryBlock* head = nullptr;
 		MemoryBlock* tail = nullptr; // Keep track of head and tail of doubly linked list
 
+		// Heuristics
+		uint32_t subAllocations;
+		vk::DeviceSize bytesUsed;
 	};
 
-	std::unique_ptr<MemoryBlock> allocateResource(const vk::MemoryRequirements& memReqs, vk::MemoryPropertyFlags memProps);
+	std::unique_ptr<MemoryBlock> allocateResource(const vk::MemoryRequirements& memReqs, vk::MemoryPropertyFlags memProps, AllocationStrategy as = AllocationStrategy::Balanced);
 	class MemoryTypeUnavailableError : std::exception {
 		const char* what() const override { return "Could not find requested memory type"; };
 	};
@@ -96,6 +104,9 @@ private:
 	std::vector<std::vector<std::unique_ptr<Allocation>>> allocations;
 	std::vector<vk::DeviceSize> allocBlockSizes;
 	static const std::map<vk::MemoryPropertyFlags, vk::DeviceSize> storageBlockSizes;
+
+	const std::function<float(const Allocation*)> allocHeuristic = [](const Allocation* a) { return (a->size - a->bytesUsed) / a->size + (1.0f / a->subAllocations); };
+	const std::function<bool(const Allocation*, const Allocation*)> allocHeuristicCmp = [this](const Allocation* a, const Allocation* b) { return allocHeuristic(a) < allocHeuristic(b); }; // We want max heap behavious, 
 
 	void setAllocBlockSizes();
 
