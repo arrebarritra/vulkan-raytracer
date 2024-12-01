@@ -17,13 +17,12 @@ Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHand
 }
 
 Image::~Image() {
-	// Check if pending submits
-	if (device->getFenceStatus(*readFinishedFence) == vk::Result::eSuccess || device->getFenceStatus(*writeFinishedFence) == vk::Result::eSuccess) {
+	// Complete pending submits
+	if (device->getFenceStatus(*readFinishedFence) == vk::Result::eNotReady || device->getFenceStatus(*writeFinishedFence) == vk::Result::eNotReady) {
 		device->waitForFences(*rch.submit(), vk::True, std::numeric_limits<uint64_t>::max());
 	}
 }
 
-// TODO: mipmapped data
 std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> data) {
 	auto& memReqs = device->getImageMemoryRequirements(*image);
 

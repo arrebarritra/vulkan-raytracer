@@ -1,15 +1,16 @@
 #pragma once
 
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_shared.hpp>
+#include <vulkan_headers.h>
 #include <GLFW/glfw3.h>
 
 #include <optional>
+#include <set>
 
 #include <devicememorymanager.h>
 #include <buffer.h>
 #include <image.h>
 #include <resourcecopyhandler.h>
+
 
 namespace vkrt {
 
@@ -23,6 +24,7 @@ protected:
 				vk::ArrayProxyNoTemporaries<const char* const> const& appendInstanceExtensions = nullptr,
 				vk::ArrayProxyNoTemporaries<const char* const> const& appendLayers = nullptr,
 				vk::ArrayProxyNoTemporaries<const char* const> const& appendDeviceExtensions = nullptr,
+				const void* additionalFeaturesChain = nullptr, 
 				bool preferDedicatedGPU = true, bool separateTransferQueue = false, bool separateComputeQueue = false,
 				uint32_t framesInFlight = 3u, vk::ImageUsageFlags swapchainImUsage = vk::ImageUsageFlagBits::eColorAttachment,
 				vk::ArrayProxy<vk::SurfaceFormatKHR> const& preferredFormats = nullptr,
@@ -35,12 +37,6 @@ protected:
 	// Instance info
 	vk::UniqueInstance instance;
 	uint32_t apiVersion;
-	std::vector<const char*> instanceExtensions;
-	std::vector<const char*> validationLayers{
-#ifndef NDEBUG
-		"VK_LAYER_KHRONOS_validation"
-#endif
-	};
 
 	// Window
 	uint32_t width, height;
@@ -77,8 +73,24 @@ protected:
 						vk::SharedFence frameFinishedFence) = 0;
 
 private:
-	// Device selection parameters
-	std::vector<const char*> deviceExtensions{ vk::KHRSwapchainExtensionName };
+	struct cstrless {
+		bool operator()(const char* a, const char* b) const {
+			return strcmp(a, b) < 0;
+		}
+	};
+
+	// Extensions and features
+	std::set<const char*, cstrless> instanceExtensions;
+	std::set<const char*, cstrless> validationLayers{
+#ifndef NDEBUG
+		"VK_LAYER_KHRONOS_validation"
+#endif
+	};
+	std::set<const char*, cstrless> deviceExtensions{ 
+		vk::KHRSwapchainExtensionName, 
+		vk::KHRBufferDeviceAddressExtensionName
+	};
+	vk::PhysicalDeviceFeatures2 featuresChain;
 
 	void createInstance();
 	void createWindow();

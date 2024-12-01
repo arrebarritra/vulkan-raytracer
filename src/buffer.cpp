@@ -11,37 +11,36 @@ Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHa
 	auto& memReqs = device->getBufferMemoryRequirements(*buffer);
 	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindBufferMemory(*buffer, *memBlock->allocation.memory, memBlock->offset);
+
 	if (data.size() != 0) write(data);
 }
 
 Buffer::~Buffer() {
-	// Submit any pending work
-	if (device->getFenceStatus(*readFinishedFence) == vk::Result::eSuccess || device->getFenceStatus(*writeFinishedFence) == vk::Result::eSuccess) {
+	// Complete pending submits
+	if (device->getFenceStatus(*readFinishedFence) == vk::Result::eNotReady || device->getFenceStatus(*writeFinishedFence) == vk::Result::eNotReady) {
 		device->waitForFences(*rch.submit(), vk::True, std::numeric_limits<uint64_t>::max());
 	}
 }
 
 // If fence is returned the resource copy handler command buffer needs to be manually submitted
-std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> data)
-{
-	// Copy buffer contents
-	auto& memReqs = device->getBufferMemoryRequirements(buffer.get());
-
+std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> data) {
 	if (memBlock->mapping) {
 		// Map memory
-		assert(data.size() <= memBlock->size); // not necessarily equal because of alignment accomodations
-		memcpy(memBlock->mapping, data.data(), memBlock->size);
+		assert(data.size() <= memBlock->size);
+		memcpy(memBlock->mapping, data.data(), data.size());
 		if (!(memBlock->allocation.memProps & vk::MemoryPropertyFlagBits::eHostCoherent))
 			device->flushMappedMemoryRanges(vk::MappedMemoryRange{}
 											.setMemory(*memBlock->allocation.memory)
 											.setOffset(memBlock->offset)
-											.setSize(memBlock->size));
+											.setSize(data.size()));
 		return std::nullopt;
 	} else {
 		// Create and read from staging buffer
 		auto& staged = Buffer(device, dmm, rch, bufferCI, data, MemoryStorage::HostStaging);
-		auto& bfrCp = vk::BufferCopy{}.setSrcOffset(0u).setDstOffset(0u).setSize(memBlock->size);
-		writeFinishedFence = copyFrom(staged, bfrCp);
+		auto& bfrCp = vk::BufferCopy{}.setSize(data.size());
+		copyFrom(staged, bfrCp);
+		writeFinishedFence = rch.submit(); // We must submit immediately so that work is sent before staged buffer is destroyed
+		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy from staging buffer has finished
 		return writeFinishedFence;
 	}
 }

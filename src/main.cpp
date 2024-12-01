@@ -1,6 +1,6 @@
 #include <raytracer.h>
 
 int main() {
-	vkrt::Raytracer rt("Hello");
+	auto& rt = vkrt::Raytracer();
 	rt.renderLoop();
 }

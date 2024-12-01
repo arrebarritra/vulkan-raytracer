@@ -1,6 +1,7 @@
 #pragma once
 
-#include <vulkan/vulkan.hpp>
+#include <vulkan_headers.h>
+
 #include <managedresource.h>
 #include <buffer.h>
 
@@ -22,6 +23,8 @@ public:
 		  const vk::MemoryPropertyFlags& memProps = ImageMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Heuristic);
 	~Image();
 
+	vk::Image operator*() { return *image; }
+
 	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) override;
 	std::vector<char> read() override;
 
@@ -29,7 +32,7 @@ public:
 	vk::SharedFence copyFrom(Image& srcImage, vk::ImageCopy imgCp, vk::ImageLayout layout = {});
 	vk::SharedFence copyFrom(vk::Buffer srcBuffer, vk::BufferImageCopy bfrImgCp, vk::ImageLayout layout = {});
 	vk::SharedFence copyFrom(Buffer& srcBuffer, vk::BufferImageCopy bfrImgCp, vk::ImageLayout layout = {});
-	vk::SharedFence copyTo(vk::Image dstImage, vk::ImageCopy imgCpm, vk::ImageLayout dstLayout = {});
+	vk::SharedFence copyTo(vk::Image dstImage, vk::ImageCopy imgCp, vk::ImageLayout dstLayout = {});
 	vk::SharedFence copyTo(Image& dstImage, vk::ImageCopy imgCp, vk::ImageLayout dstLayout = {});
 	vk::SharedFence copyTo(vk::Buffer dstBuffer, vk::BufferImageCopy bfrImgCp);
 	vk::SharedFence copyTo(Buffer& dstBuffer, vk::BufferImageCopy bfrImgCp);

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_shared.hpp>
+#include <vulkan_headers.h>
+
 #include <managedresource.h>
 #include <image.h>
 
@@ -19,9 +19,11 @@ class Image;
 class Buffer : public ManagedResource {
 
 public:
-	Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::BufferCreateInfo bufferCI, vk::ArrayProxyNoTemporaries<char> data = nullptr, 
-		   const vk::MemoryPropertyFlags& memProps = BufferMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Heuristic);
+	Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::BufferCreateInfo bufferCI, vk::ArrayProxyNoTemporaries<char> data = nullptr,
+		   const vk::MemoryPropertyFlags& memProps = BufferMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Fast);
 	~Buffer();
+
+	vk::Buffer operator*() { return *buffer; }
 
 	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) override;
 	std::vector<char> read() override;

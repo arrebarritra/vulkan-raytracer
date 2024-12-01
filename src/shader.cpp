@@ -1,5 +1,6 @@
 #include <shader.h>
 #include <logging.h>
+#include <utils.h>
 
 #include <fstream>
 #include <ios>
@@ -22,29 +23,26 @@ const std::map<std::string, vk::ShaderStageFlagBits> Shader::extensionToShaderTy
 	{".rint", vk::ShaderStageFlagBits::eIntersectionKHR}
 };
 
-Shader::Shader(const vk::Device& device, const std::string& shaderSrcFileName, std::string entryPoint)
+Shader::Shader(vk::SharedDevice device, const std::string& shaderSrcFileName, const char* entryPoint)
 	: Shader(device, shaderSrcFileName,
 			 extensionToShaderType.at(std::filesystem::path(shaderSrcFileName).extension().string()),
 			 entryPoint) {}
 
 
-Shader::Shader(const vk::Device& device, const std::string& shaderSrcFileName, vk::ShaderStageFlagBits shaderStage, std::string entryPoint)
-{
+Shader::Shader(vk::SharedDevice device, const std::string& shaderSrcFileName, vk::ShaderStageFlagBits shaderStage, const char* entryPoint) {
 	std::ifstream stream(std::filesystem::path(SHADER_BINARY_DIR) / (shaderSrcFileName + ".spv"), std::ios::ate | std::ios::binary);
 	size_t fileSize = stream.tellg();
-	std::vector<uint32_t> binary(fileSize);
+	std::vector<uint32_t> binary((fileSize + sizeof(uint32_t) - 1) / sizeof(uint32_t));
 	stream.seekg(0);
 	stream.read(reinterpret_cast<char*>(binary.data()), fileSize);
 
-	auto& shaderCI = vk::ShaderModuleCreateInfo{}
-		.setCodeSize(binary.size())
-		.setPCode(binary.data());
-	shaderModule = device.createShaderModuleUnique(shaderCI);
+	auto& shaderCI = vk::ShaderModuleCreateInfo{}.setCode(binary);
+	shaderModule = device->createShaderModuleUnique(shaderCI);
 
 	shaderStageInfo = vk::PipelineShaderStageCreateInfo{}
 		.setStage(shaderStage)
 		.setModule(shaderModule.get())
-		.setPName(entryPoint.c_str());
+		.setPName(entryPoint);
 }
 
 }

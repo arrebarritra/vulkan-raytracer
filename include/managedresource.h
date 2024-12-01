@@ -1,7 +1,6 @@
 #pragma once
 
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_shared.hpp>
+#include <vulkan_headers.h>
 
 #include <logging.h>
 #include <devicememorymanager.h>

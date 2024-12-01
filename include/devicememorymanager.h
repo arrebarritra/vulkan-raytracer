@@ -1,7 +1,6 @@
 #pragma once
 
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_shared.hpp>
+#include <vulkan_headers.h>
 
 #include <logging.h>
 
@@ -43,11 +42,10 @@ public:
 		~MemoryBlock();
 
 		Allocation& allocation;
-		vk::DeviceSize offset, size;
-		char* mapping;
+		vk::DeviceSize offset, size, padding;
+		char* mapping = nullptr;
 
 	private:
-		vk::DeviceSize padding;
 		// Store memory blocks in doubly linked list
 		MemoryBlock* prev = nullptr;
 		MemoryBlock* next = nullptr;
@@ -70,7 +68,8 @@ public:
 		vk::MemoryPropertyFlags memProps;
 		vk::UniqueDeviceMemory memory;
 		char* mapping = nullptr;
-		vk::DeviceSize size, offset;
+		const vk::DeviceSize size;
+		vk::DeviceSize offset;
 
 	private:
 		Allocation(DeviceMemoryManager& dmm, uint32_t memTypeIdx, vk::MemoryPropertyFlags memProps);

@@ -19,8 +19,7 @@ ResourceCopyHandler::ResourceCopyHandler(vk::SharedDevice device, std::tuple<uin
 		return vk::SharedFence(device->createFence(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled)), device); });
 }
 
-vk::SharedFence ResourceCopyHandler::submit(vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> waitSemaphores, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> signalSemaphores, std::optional<vk::SharedFence> fence)
-{
+const vk::SharedFence& ResourceCopyHandler::submit(vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> waitSemaphores, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> signalSemaphores, std::optional<vk::SharedFence> fence) {
 	if (recording) {
 		transferCmdBuffers[idx]->end();
 		recording = false;
@@ -41,20 +40,16 @@ vk::SharedFence ResourceCopyHandler::submit(vk::ArrayProxyNoTemporaries<vk::Shar
 			.setWaitSemaphores(submitWaitSemaphores)
 			.setSignalSemaphores(submitSignalSemaphores);
 
-		// Set up fence
-		if (fence)
-			transferFences[idx] = *fence;
-		else
-			device->resetFences(*transferFences[idx]);
-
+		// TODO: do not invalidate original fence
+		if (fence) transferFences[idx] = *fence;
+		device->resetFences(*transferFences[idx]);
 		std::get<vk::Queue>(transferQueue).submit(submitInfo, *transferFences[idx]);
 	}
-	// TODO: return value if submit is ignored (return fence anyways?)
+
 	return transferFences[idx];
 }
 
-void ResourceCopyHandler::startRecording()
-{
+void ResourceCopyHandler::startRecording() {
 	recording = true;
 
 	std::array<vk::Fence, POOL_SIZE> fencesTmp;
@@ -67,7 +62,7 @@ void ResourceCopyHandler::startRecording()
 	transferCmdBuffers[idx]->begin(vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 }
 
-vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, vk::Buffer dstBuffer, vk::BufferCopy bfrCp) {
+const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, vk::Buffer dstBuffer, vk::BufferCopy bfrCp) {
 	if (!recording) startRecording();
 
 	transferCmdBuffers[idx]->copyBuffer(srcBuffer, dstBuffer, bfrCp);
@@ -75,7 +70,7 @@ vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, vk::Buf
 	return transferFences[idx];
 }
 
-vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk::Image dstImage, vk::ImageCopy imgCp, vk::ImageLayout dstLayout) {
+const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk::Image dstImage, vk::ImageCopy imgCp, vk::ImageLayout dstLayout) {
 	if (!recording) startRecording();
 
 	// Set up pipeline barriers for image transitions
@@ -115,7 +110,7 @@ vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk::Image
 	return transferFences[idx];
 }
 
-vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, vk::Image dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout) {
+const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, vk::Image dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout) {
 	if (!recording) startRecording();
 
 	// Set up pipeline barriers for image transition
@@ -146,7 +141,7 @@ vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, vk::Ima
 	return transferFences[idx];
 }
 
-vk::SharedFence ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk::Buffer dstBuffer, vk::BufferImageCopy bfrImgCp) {
+const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk::Buffer dstBuffer, vk::BufferImageCopy bfrImgCp) {
 	if (!recording) startRecording();
 
 	// Set up pipeline barriers for image transition

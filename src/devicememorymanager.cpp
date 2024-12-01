@@ -1,4 +1,5 @@
 #include <devicememorymanager.h>
+#include <utils.h>
 #include <queue>
 
 namespace vkrt {
@@ -127,16 +128,20 @@ DeviceMemoryManager::Allocation::Allocation(DeviceMemoryManager& dmm, uint32_t m
 	: dmm(dmm), memTypeIdx(memTypeIdx), memProps(memProps), size(dmm.allocBlockSizes[memTypeIdx]), offset(0u)
 	, subAllocations(0u), bytesUsed(0u)
 {
+	auto& memoryAllocFI = vk::MemoryAllocateFlagsInfo{}.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress); // Enable device addresses
 	auto& memoryAllocInfo = vk::MemoryAllocateInfo{}
+		.setPNext(&memoryAllocFI)
 		.setAllocationSize(size)
 		.setMemoryTypeIndex(memTypeIdx);
+
 	memory = dmm.device->allocateMemoryUnique(memoryAllocInfo);
-	if (memProps & vk::MemoryPropertyFlagBits::eHostVisible) mapping = static_cast<char*>(dmm.device->mapMemory(memory.get(), 0u, size));
+	if (memProps & vk::MemoryPropertyFlagBits::eHostVisible) mapping = static_cast<char*>(dmm.device->mapMemory(*memory, 0u, vk::WholeSize));
 }
 
 DeviceMemoryManager::Allocation::~Allocation() {
 	// All suballocations should have been destroyed, but check for sanity
 	assert(head == nullptr && tail == nullptr);
+	assert(subAllocations == 0);
 
 	if (mapping) {
 		if (!(memProps & vk::MemoryPropertyFlagBits::eHostCoherent))
@@ -144,7 +149,7 @@ DeviceMemoryManager::Allocation::~Allocation() {
 												.setMemory(*memory)
 												.setOffset(0u)
 												.setSize(vk::WholeSize));
-		dmm.device->unmapMemory(memory.get());
+		dmm.device->unmapMemory(*memory);
 	}
 }
 
@@ -156,9 +161,8 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocatio
 	switch (as) {
 		case AllocationStrategy::Fast:
 			// Fit allocation to required alignment
-			blockOffset = offset % memReqs.alignment ? \
-				offset + memReqs.alignment - (offset % memReqs.alignment) : offset;
-			blockPadding = (memReqs.alignment - memReqs.size % memReqs.alignment) % memReqs.alignment;
+			blockOffset = utils::alignedOffset(offset, memReqs.alignment);
+			blockPadding = utils::paddingSize(memReqs.size, memReqs.alignment);
 			if (blockOffset + memReqs.size + blockPadding > size) { throw SubAllocationFailedError(); }
 			neighbours = std::make_tuple(tail, nullptr);
 			break;
@@ -167,9 +171,8 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocatio
 		case AllocationStrategy::Heuristic:
 			for (auto mbIt = head; mbIt != tail; mbIt = mbIt->next) {
 				auto baseOffset = mbIt == head ? 0 : mbIt->prev->offset + mbIt->prev->size + mbIt->prev->padding;
-				blockOffset = baseOffset % memReqs.alignment ? \
-					baseOffset + memReqs.alignment - (baseOffset % memReqs.alignment) : baseOffset;
-				blockPadding = (memReqs.alignment - memReqs.size % memReqs.alignment) % memReqs.alignment;
+				blockOffset = utils::alignedOffset(baseOffset, memReqs.alignment);
+				blockPadding = utils::paddingSize(memReqs.size, memReqs.alignment);
 
 				if (blockOffset + memReqs.size + blockPadding < mbIt->offset) {
 					neighbours = std::make_tuple(mbIt->prev, mbIt);
@@ -177,15 +180,14 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocatio
 				}
 			}
 			// Appending to last
-			blockOffset = offset % memReqs.alignment ? \
-				offset + memReqs.alignment - (offset % memReqs.alignment) : offset;
-			blockPadding = (memReqs.alignment - memReqs.size % memReqs.alignment) % memReqs.alignment;
+			blockOffset = utils::alignedOffset(offset, memReqs.alignment);
+			blockPadding = utils::paddingSize(memReqs.size, memReqs.alignment);
 			if (blockOffset + memReqs.size + blockPadding > size) { throw SubAllocationFailedError(); }
 			neighbours = std::make_tuple(tail, nullptr);
 			break;
 	}
 
-	mb = std::make_unique<MemoryBlock>(*this, blockOffset, memReqs.size, blockPadding, mapping);
+	mb = std::make_unique<MemoryBlock>(*this, blockOffset, memReqs.size, blockPadding, mapping ? mapping + blockOffset : nullptr);
 
 	assert((head == nullptr && tail == nullptr) || (head != nullptr && tail != nullptr));
 	if (neighbours == std::make_tuple<MemoryBlock*, MemoryBlock*>(nullptr, nullptr)) {

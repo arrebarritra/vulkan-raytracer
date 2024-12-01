@@ -1,4 +1,4 @@
-#include <vulkan/vulkan.hpp>
+#include <vulkan_headers.h>
 
 #include <filesystem>
 #include <string>
@@ -9,8 +9,8 @@ namespace vkrt {
 class Shader {
 	
 public:
-	Shader(const vk::Device& device, const std::string& shaderSrcFileName, std::string entryPoint = "main");
-	Shader(const vk::Device& device, const std::string& shaderSrcFileName, vk::ShaderStageFlagBits shaderStage, std::string entryPoint = "main");
+	Shader(const vk::SharedDevice device, const std::string& shaderSrcFileName, const char* entryPoint = "main");
+	Shader(const vk::SharedDevice device, const std::string& shaderSrcFileName, vk::ShaderStageFlagBits shaderStage, const char* entryPoint = "main");
 	~Shader() = default;
 
 	vk::UniqueShaderModule shaderModule;

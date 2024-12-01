@@ -77,7 +77,7 @@ add_custom_command(
 foreach(source IN LISTS SHADER_FILES)
   get_filename_component(FILENAME ${source} NAME)
   add_custom_command(
-    COMMAND ${glslc_executable} -o ${SHADER_BINARY_DIR}/${FILENAME}.spv ${source}
+    COMMAND ${glslc_executable} --target-spv=spv1.4 -o ${SHADER_BINARY_DIR}/${FILENAME}.spv ${source}
     OUTPUT ${SHADER_BINARY_DIR}/${FILENAME}.spv
     DEPENDS ${source} ${SHADER_BINARY_DIR}
     COMMENT "Compiling ${FILENAME}"

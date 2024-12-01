@@ -1,15 +1,23 @@
 #include <application.h>
-
 #include <logging.h>
-
 #include <tuple>
 
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
+
 namespace vkrt {
+
+auto bufferDeviceAddressFeatures = vk::PhysicalDeviceBufferDeviceAddressFeatures{}
+.setBufferDeviceAddress(vk::True)
+#ifndef NDEBUG
+.setBufferDeviceAddressCaptureReplay(vk::True)
+#endif
+;
 
 Application::Application(std::string appName, uint32_t width, uint32_t height, const uint32_t apiVersion,
 						 vk::ArrayProxyNoTemporaries<const char* const> const& appendInstanceExtensions,
 						 vk::ArrayProxyNoTemporaries<const char* const> const& appendLayers,
 						 vk::ArrayProxyNoTemporaries<const char* const> const& appendDeviceExtensions,
+						 const void* additionalFeaturesChain,
 						 bool preferDedicatedGPU, bool separateTransferQueue, bool separateComputeQueue,
 						 uint32_t framesInFlight, vk::ImageUsageFlags swapchainImUsage,
 						 vk::ArrayProxy<vk::SurfaceFormatKHR> const& preferredFormats,
@@ -21,6 +29,8 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 	, framesInFlight(framesInFlight)
 	, swapchainImUsage(swapchainImUsage)
 {
+	VULKAN_HPP_DEFAULT_DISPATCHER.init();
+
 	// Get required GLFW extensions
 	glfwInit();
 	std::vector<const char*> glfwExtensions;
@@ -29,20 +39,27 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 	for (int i = 0; i < glfwReqExtCount; i++) glfwExtensions.push_back(glfwReqExt[i]);
 
 	// Create instance
-	instanceExtensions.insert(instanceExtensions.end(), glfwExtensions.begin(), glfwExtensions.end());
-	instanceExtensions.insert(instanceExtensions.end(), appendInstanceExtensions.begin(), appendInstanceExtensions.end());
-	validationLayers.insert(validationLayers.end(), appendLayers.begin(), appendLayers.end());
+	for (const auto& ext : glfwExtensions)
+		instanceExtensions.insert(ext);
+	for (const auto& ext : appendInstanceExtensions)
+		instanceExtensions.insert(ext);
+	for (const auto& ext : appendLayers)
+		validationLayers.insert(ext);
+
+	featuresChain.setPNext(&bufferDeviceAddressFeatures);
+	if (additionalFeaturesChain) {
+		vk::PhysicalDeviceFeatures2* feature = (vk::PhysicalDeviceFeatures2*)featuresChain.pNext; // cast to access pNext field in features
+		while (feature->pNext) feature = (vk::PhysicalDeviceFeatures2*)feature->pNext;
+		feature->setPNext((void*)additionalFeaturesChain); // sketchy casting, but won't be changing the value
+	}
 
 	createInstance();
 	createWindow();
 	createSurface();
 
 	// Append required device extensions
-	deviceExtensions.insert(deviceExtensions.end(), appendDeviceExtensions.begin(), appendDeviceExtensions.end());
-	std::sort(deviceExtensions.begin(), deviceExtensions.end(),
-			  [](const char* a, const char* b) {
-				  return strcmp(a, b) < 0;
-			  });
+	for (const auto& ext : appendDeviceExtensions)
+		deviceExtensions.insert(ext);
 	selectPhysicalDevice(preferDedicatedGPU);
 	createDevice(separateTransferQueue, separateComputeQueue);
 
@@ -58,6 +75,9 @@ Application::~Application() {
 }
 
 void Application::createInstance() {
+	std::vector<const char*> instanceExtensionsData, validationLayersData;
+	std::copy(instanceExtensions.begin(), instanceExtensions.end(), std::back_inserter(instanceExtensionsData));
+	std::copy(validationLayers.begin(), validationLayers.end(), std::back_inserter(validationLayersData));
 	auto& appInfo = vk::ApplicationInfo{}
 		.setPApplicationName(appName.c_str())
 		.setApiVersion(apiVersion)
@@ -65,10 +85,11 @@ void Application::createInstance() {
 		.setPEngineName("vkrt");
 	auto& instanceCI = vk::InstanceCreateInfo{}
 		.setPApplicationInfo(&appInfo)
-		.setPEnabledExtensionNames(instanceExtensions)
-		.setPEnabledLayerNames(validationLayers);
+		.setPEnabledExtensionNames(instanceExtensionsData)
+		.setPEnabledLayerNames(validationLayersData);
 
 	instance = vk::createInstanceUnique(instanceCI);
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
 }
 
 void Application::createWindow() {
@@ -98,21 +119,11 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 					   [](const vk::ExtensionProperties& ep) {
 						   return ep.extensionName.data();
 					   });
-		std::sort(availableDevExtensionNames.begin(), availableDevExtensionNames.end(),
-				  [](const char* a, const char* b) {
-					  return strcmp(a, b) < 0;
-				  });
-		// Sort required extensions into new array
-		std::sort(deviceExtensions.begin(), deviceExtensions.end(),
-				  [](const char* a, const char* b) {
-					  return strcmp(a, b) < 0;
-				  });
+		std::sort(availableDevExtensionNames.begin(), availableDevExtensionNames.end(), cstrless());
 		// Are required extensions supported?
 		bool extsSupported = std::includes(availableDevExtensionNames.begin(), availableDevExtensionNames.end(),
 										   deviceExtensions.begin(), deviceExtensions.end(),
-										   [](const char* a, const char* const& b) {
-											   return strcmp(a, b) < 0;
-										   });
+										   cstrless());
 		if (!extsSupported) continue;
 
 		bool presSupported = false;
@@ -165,7 +176,7 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 			  });
 	physicalDevice = eligibleDevices.front();
 #ifndef NDEBUG
-	LOG_INFO("Selected device: %s", physicalDevice.getProperties().deviceName);
+	LOG_INFO("Selected device: %s", physicalDevice.getProperties().deviceName.data());
 #endif
 }
 
@@ -210,8 +221,12 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 							   .setQueueFamilyIndex(qfi)
 							   .setQueuePriorities(queuePriorities));
 	}
+
+	std::vector<const char*> deviceExtensionsData;
+	std::copy(deviceExtensions.begin(), deviceExtensions.end(), std::back_inserter(deviceExtensionsData));
 	auto& deviceCI = vk::DeviceCreateInfo{}
-		.setPEnabledExtensionNames(deviceExtensions)
+		.setPNext(&featuresChain)
+		.setPEnabledExtensionNames(deviceExtensionsData)
 		.setQueueCreateInfos(queueCIs);
 	vk::Device deviceTmp = physicalDevice.createDevice(deviceCI);
 	device = vk::SharedHandle(deviceTmp);
@@ -219,6 +234,7 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 	graphicsQueue = { queueFamilyIndices[0], device->getQueue(queueFamilyIndices[0], 0) };
 	if (separateTransferQueue) transferQueue = { queueFamilyIndices[1], device->getQueue(queueFamilyIndices[1], 0) };
 	if (separateComputeQueue) computeQueue = { queueFamilyIndices[2], device->getQueue(queueFamilyIndices[2], 0) };
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
 }
 
 void Application::createSwapchain() {
@@ -295,12 +311,12 @@ void Application::renderLoop() {
 	std::vector<vk::SharedSemaphore> imageAcquiredSemaphores(framesInFlight);
 	std::generate(imageAcquiredSemaphores.begin(), imageAcquiredSemaphores.end(),
 				  [this]() {
-					  return vk::SharedSemaphore(device->createSemaphore(vk::SemaphoreCreateInfo{}), device);
+					  return vk::SharedSemaphore(device->createSemaphore({}), device);
 				  });
 	std::vector<vk::SharedSemaphore> renderFinishedSemaphores(framesInFlight);
 	std::generate(renderFinishedSemaphores.begin(), renderFinishedSemaphores.end(),
 				  [this]() {
-					  return vk::SharedSemaphore(device->createSemaphore(vk::SemaphoreCreateInfo{}), device);
+					  return vk::SharedSemaphore(device->createSemaphore({}), device);
 				  });
 	std::vector<vk::SharedFence> frameFinishedFences(framesInFlight);
 	std::generate(frameFinishedFences.begin(), frameFinishedFences.end(),
