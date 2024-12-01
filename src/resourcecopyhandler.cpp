@@ -4,12 +4,12 @@ namespace vkrt {
 ResourceCopyHandler::ResourceCopyHandler(vk::SharedDevice device, std::tuple<uint32_t, vk::Queue> transferQueue)
 	: device(device), transferQueue(transferQueue)
 {
-	auto& cmdPoolCI = vk::CommandPoolCreateInfo{}
+	auto cmdPoolCI = vk::CommandPoolCreateInfo{}
 		.setQueueFamilyIndex(std::get<uint32_t>(transferQueue))
 		.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
 	commandPool = device->createCommandPoolUnique(cmdPoolCI);
 
-	auto& buffersTmp = device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
+	auto buffersTmp = device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
 															.setCommandPool(*commandPool)
 															.setCommandBufferCount(POOL_SIZE)
 															.setLevel(vk::CommandBufferLevel::ePrimary));
@@ -34,7 +34,7 @@ const vk::SharedFence& ResourceCopyHandler::submit(vk::ArrayProxyNoTemporaries<v
 		std::transform(signalSemaphores.begin(), signalSemaphores.end(), submitSignalSemaphores.begin(),
 					   [](const vk::SharedSemaphore& ss) { return *ss; });
 
-		auto& submitInfo = vk::SubmitInfo{}
+		auto submitInfo = vk::SubmitInfo{}
 			.setCommandBuffers(*transferCmdBuffers[idx])
 			.setWaitDstStageMask(submitWaitDstStageMask)
 			.setWaitSemaphores(submitWaitSemaphores)
@@ -74,14 +74,14 @@ const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk
 	if (!recording) startRecording();
 
 	// Set up pipeline barriers for image transitions
-	auto& srcPreImMemBarrier = vk::ImageMemoryBarrier{}
+	auto srcPreImMemBarrier = vk::ImageMemoryBarrier{}
 		.setDstAccessMask(vk::AccessFlagBits::eTransferRead)
 		.setOldLayout(vk::ImageLayout::eUndefined)
 		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
 		.setImage(srcImage)
 		.setSubresourceRange({ imgCp.srcSubresource.aspectMask, imgCp.srcSubresource.mipLevel, 1u,
 							 imgCp.srcSubresource.baseArrayLayer, imgCp.srcSubresource.layerCount });
-	auto& dstPreImMemBarrier = vk::ImageMemoryBarrier{}
+	auto dstPreImMemBarrier = vk::ImageMemoryBarrier{}
 		.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
 		.setOldLayout(vk::ImageLayout::eUndefined)
 		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
@@ -96,7 +96,7 @@ const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk
 	transferCmdBuffers[idx]->copyImage(srcImage, vk::ImageLayout::eTransferSrcOptimal, dstImage, vk::ImageLayout::eTransferDstOptimal, imgCp);
 
 	if (dstLayout != vk::ImageLayout{}) {
-		auto& dstPostImMemBarrier = vk::ImageMemoryBarrier{}
+		auto dstPostImMemBarrier = vk::ImageMemoryBarrier{}
 			.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
 			.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
 			.setNewLayout(dstLayout)
@@ -114,7 +114,7 @@ const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, 
 	if (!recording) startRecording();
 
 	// Set up pipeline barriers for image transition
-	auto& dstImMemBarrier = vk::ImageMemoryBarrier{}
+	auto dstImMemBarrier = vk::ImageMemoryBarrier{}
 		.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
 		.setOldLayout(vk::ImageLayout::eUndefined)
 		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
@@ -127,7 +127,7 @@ const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Buffer srcBuffer, 
 	transferCmdBuffers[idx]->copyBufferToImage(srcBuffer, dstImage, vk::ImageLayout::eTransferDstOptimal, bfrImgCp);
 
 	if (dstLayout != vk::ImageLayout{}) {
-		auto& dstPreImMemBarrier = vk::ImageMemoryBarrier{}
+		auto dstPreImMemBarrier = vk::ImageMemoryBarrier{}
 			.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
 			.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
 			.setNewLayout(dstLayout)
@@ -145,7 +145,7 @@ const vk::SharedFence& ResourceCopyHandler::recordCopyCmd(vk::Image srcImage, vk
 	if (!recording) startRecording();
 
 	// Set up pipeline barriers for image transition
-	auto& srcImMemBarrier = vk::ImageMemoryBarrier{}
+	auto srcImMemBarrier = vk::ImageMemoryBarrier{}
 		.setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
 		.setOldLayout(vk::ImageLayout::eUndefined)
 		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)

@@ -10,7 +10,7 @@ Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHand
 			.setTiling(vk::ImageTiling::eOptimal)) // Only allow optimal tiling images for simplicity, defer to buffer for linear images
 	, image(device->createImageUnique(imageCI))
 {
-	auto& memReqs = device->getImageMemoryRequirements(*image);
+	auto memReqs = device->getImageMemoryRequirements(*image);
 	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindImageMemory(*image, *memBlock->allocation.memory, memBlock->offset);
 	if (data.size() != 0) write(data);
@@ -24,7 +24,7 @@ Image::~Image() {
 }
 
 std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> data) {
-	auto& memReqs = device->getImageMemoryRequirements(*image);
+	auto memReqs = device->getImageMemoryRequirements(*image);
 
 	if (memBlock->mapping) {
 		// Map memory
@@ -42,9 +42,9 @@ std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> da
 		stagingImageCI
 			.setUsage(vk::ImageUsageFlagBits::eTransferSrc)
 			.setInitialLayout(vk::ImageLayout::eTransferSrcOptimal);
-		auto& staged = Image(device, dmm, rch, stagingImageCI, data, MemoryStorage::HostStaging);
+		auto staged = Image(device, dmm, rch, stagingImageCI, data, MemoryStorage::HostStaging);
 
-		auto& imgCp = vk::ImageCopy{}
+		auto imgCp = vk::ImageCopy{}
 			.setExtent(imageCI.extent)
 			.setSrcOffset({ 0u, 0u, 0u })
 			.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0u, 0u, imageCI.arrayLayers }) // TODO: calculate aspect from format
@@ -69,9 +69,9 @@ std::vector<char> Image::read() {
 		// Create and write to staging buffer
 		auto stagingImageCI = imageCI;
 		stagingImageCI.setInitialLayout(vk::ImageLayout::eTransferDstOptimal);
-		auto& staged = Image(device, dmm, rch, stagingImageCI, nullptr, MemoryStorage::HostDownload);
+		auto staged = Image(device, dmm, rch, stagingImageCI, nullptr, MemoryStorage::HostDownload);
 
-		auto& imgCp = vk::ImageCopy{}
+		auto imgCp = vk::ImageCopy{}
 			.setExtent(imageCI.extent)
 			.setSrcOffset({ 0u, 0u, 0u })
 			.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0u, 0u, imageCI.arrayLayers }) // TODO: calculate aspect from format

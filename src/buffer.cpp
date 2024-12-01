@@ -8,7 +8,7 @@ Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHa
 			   .setUsage(bufferCI.usage | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst))  // Force transfer flags to be set to enable copying
 	, buffer(device->createBufferUnique(bufferCI))
 {
-	auto& memReqs = device->getBufferMemoryRequirements(*buffer);
+	auto memReqs = device->getBufferMemoryRequirements(*buffer);
 	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindBufferMemory(*buffer, *memBlock->allocation.memory, memBlock->offset);
 
@@ -36,8 +36,8 @@ std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> d
 		return std::nullopt;
 	} else {
 		// Create and read from staging buffer
-		auto& staged = Buffer(device, dmm, rch, bufferCI, data, MemoryStorage::HostStaging);
-		auto& bfrCp = vk::BufferCopy{}.setSize(data.size());
+		auto staged = Buffer(device, dmm, rch, bufferCI, data, MemoryStorage::HostStaging);
+		auto bfrCp = vk::BufferCopy{}.setSize(data.size());
 		copyFrom(staged, bfrCp);
 		writeFinishedFence = rch.submit(); // We must submit immediately so that work is sent before staged buffer is destroyed
 		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy from staging buffer has finished
@@ -57,8 +57,8 @@ std::vector<char> Buffer::read() {
 		return data;
 	} else {
 		// Create and write to staging buffer
-		auto& staged = Buffer(device, dmm, rch, bufferCI, nullptr, MemoryStorage::HostDownload);
-		auto& bfrCp = vk::BufferCopy{}.setSrcOffset(0u).setDstOffset(0u).setSize(memBlock->size);
+		auto staged = Buffer(device, dmm, rch, bufferCI, nullptr, MemoryStorage::HostDownload);
+		auto bfrCp = vk::BufferCopy{}.setSrcOffset(0u).setDstOffset(0u).setSize(memBlock->size);
 		copyTo(staged, bfrCp);
 		readFinishedFence = rch.submit();
 		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy to staging buffer has finished

@@ -78,12 +78,12 @@ void Application::createInstance() {
 	std::vector<const char*> instanceExtensionsData, validationLayersData;
 	std::copy(instanceExtensions.begin(), instanceExtensions.end(), std::back_inserter(instanceExtensionsData));
 	std::copy(validationLayers.begin(), validationLayers.end(), std::back_inserter(validationLayersData));
-	auto& appInfo = vk::ApplicationInfo{}
+	auto appInfo = vk::ApplicationInfo{}
 		.setPApplicationName(appName.c_str())
 		.setApiVersion(apiVersion)
 		.setApplicationVersion(0)
 		.setPEngineName("vkrt");
-	auto& instanceCI = vk::InstanceCreateInfo{}
+	auto instanceCI = vk::InstanceCreateInfo{}
 		.setPApplicationInfo(&appInfo)
 		.setPEnabledExtensionNames(instanceExtensionsData)
 		.setPEnabledLayerNames(validationLayersData);
@@ -106,14 +106,14 @@ void Application::createSurface() {
 }
 
 void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
-	auto& physicalDevices = instance->enumeratePhysicalDevices();
+	auto physicalDevices = instance->enumeratePhysicalDevices();
 	std::vector<vk::PhysicalDevice> eligibleDevices;
 	eligibleDevices.reserve(physicalDevices.size());
-	auto& queueFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
+	auto queueFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
 
 	for (const auto& pd : physicalDevices) {
 		// Get device extensions
-		const auto& availableDevExtensionProps = pd.enumerateDeviceExtensionProperties();
+		const auto availableDevExtensionProps = pd.enumerateDeviceExtensionProperties();
 		std::vector<const char*> availableDevExtensionNames(availableDevExtensionProps.size());
 		std::transform(availableDevExtensionProps.begin(), availableDevExtensionProps.end(), availableDevExtensionNames.begin(),
 					   [](const vk::ExtensionProperties& ep) {
@@ -150,8 +150,8 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 	// Pick best device according to preferences
 	std::sort(eligibleDevices.begin(), eligibleDevices.end(),
 			  [preferDedicatedGPU](const vk::PhysicalDevice& a, const vk::PhysicalDevice& b) {
-				  auto& propsA = a.getProperties();
-				  auto& propsB = b.getProperties();
+				  auto propsA = a.getProperties();
+				  auto propsB = b.getProperties();
 				  // Prioritise device type first
 				  if (preferDedicatedGPU) {
 					  if (propsA.deviceType == vk::PhysicalDeviceType::eDiscreteGpu && propsB.deviceType != vk::PhysicalDeviceType::eDiscreteGpu)
@@ -161,8 +161,8 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 				  }
 
 				  // Prioritise by more memory
-				  auto& memHeapsA = a.getMemoryProperties().memoryHeaps;
-				  auto& memHeapsB = b.getMemoryProperties().memoryHeaps;
+				  auto memHeapsA = a.getMemoryProperties().memoryHeaps;
+				  auto memHeapsB = b.getMemoryProperties().memoryHeaps;
 				  int memA, memB;
 
 				  for (auto& heap : memHeapsA) {
@@ -181,7 +181,7 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 }
 
 std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bool separateComputeQueue) {
-	auto& qfps = physicalDevice.getQueueFamilyProperties();
+	auto qfps = physicalDevice.getQueueFamilyProperties();
 	std::array selectedQueues{ -1u, -1u, -1u };
 
 	// Search for graphics queue
@@ -210,7 +210,7 @@ std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bo
 }
 
 void Application::createDevice(bool separateTransferQueue, bool separateComputeQueue) {
-	const auto& queueFamilyIndices = selectQueues(separateTransferQueue, separateComputeQueue);
+	const auto queueFamilyIndices = selectQueues(separateTransferQueue, separateComputeQueue);
 	std::vector<vk::DeviceQueueCreateInfo> queueCIs;
 	std::array queuePriorities = { 1.0f };
 	queueCIs.reserve(queueFamilyIndices.size());
@@ -224,7 +224,7 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 
 	std::vector<const char*> deviceExtensionsData;
 	std::copy(deviceExtensions.begin(), deviceExtensions.end(), std::back_inserter(deviceExtensionsData));
-	auto& deviceCI = vk::DeviceCreateInfo{}
+	auto deviceCI = vk::DeviceCreateInfo{}
 		.setPNext(&featuresChain)
 		.setPEnabledExtensionNames(deviceExtensionsData)
 		.setQueueCreateInfos(queueCIs);
@@ -238,7 +238,7 @@ void Application::createDevice(bool separateTransferQueue, bool separateComputeQ
 }
 
 void Application::createSwapchain() {
-	auto& swapchainCI = vk::SwapchainCreateInfoKHR{}
+	auto swapchainCI = vk::SwapchainCreateInfoKHR{}
 		.setSurface(*surface)
 		.setImageExtent(vk::Extent2D{ width,height })
 		.setMinImageCount(framesInFlight)
@@ -256,8 +256,8 @@ void Application::createSwapchain() {
 
 void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFormatKHR>& preferredFormats,
 											 const vk::ArrayProxy<vk::PresentModeKHR>& preferredPresModes) {
-	auto& availableFormats = physicalDevice.getSurfaceFormatsKHR(*surface);
-	auto& availablePresModes = physicalDevice.getSurfacePresentModesKHR(*surface);
+	auto availableFormats = physicalDevice.getSurfaceFormatsKHR(*surface);
+	auto availablePresModes = physicalDevice.getSurfacePresentModesKHR(*surface);
 
 	swapchainFormat = availableFormats[0];
 	presentMode = availablePresModes[0];
@@ -342,12 +342,12 @@ void Application::renderLoop() {
 		drawFrame(frameIdx, imageAcquiredSemaphores[frameIdx], renderFinishedSemaphores[frameIdx], frameFinishedFences[frameIdx]);
 
 		const vk::Semaphore& renderFinishedSemaphore = *(renderFinishedSemaphores[frameIdx]);
-		auto& presentInfo = vk::PresentInfoKHR{}
+		auto presentInfo = vk::PresentInfoKHR{}
 			.setWaitSemaphores(renderFinishedSemaphore)
 			.setSwapchains(*swapchain)
 			.setPImageIndices(&imageIndex);
 		try {
-			const auto& res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);
+			const auto res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);
 			if (res == vk::Result::eSuboptimalKHR || framebufferResized)
 				handleResize();
 		} catch (vk::OutOfDateKHRError const& e) {

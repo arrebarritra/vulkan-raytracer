@@ -21,7 +21,7 @@ DeviceMemoryManager::DeviceMemoryManager(vk::SharedDevice device, vk::PhysicalDe
 }
 
 void DeviceMemoryManager::setAllocBlockSizes() {
-	auto& memoryProperties = physicalDevice.getMemoryProperties();
+	auto memoryProperties = physicalDevice.getMemoryProperties();
 
 	for (uint32_t memIdx = 0u; memIdx < memoryProperties.memoryTypeCount; memIdx++) {
 		auto memPropFlags = memoryProperties.memoryTypes[memIdx].propertyFlags;
@@ -38,10 +38,10 @@ void DeviceMemoryManager::setAllocBlockSizes() {
 
 // Based on https://registry.khronos.org/vulkan/specs/1.0/html/vkspec.html#VkMemoryType example
 uint32_t DeviceMemoryManager::findMemoryTypeIdx(const vk::MemoryRequirements& memReqs, const vk::MemoryPropertyFlags requiredProperties) {
-	auto& memoryProperties = physicalDevice.getMemoryProperties();
+	auto memoryProperties = physicalDevice.getMemoryProperties();
 
 	for (uint32_t memIdx = 0u; memIdx < memoryProperties.memoryTypeCount; memIdx++) {
-		auto& memType = memoryProperties.memoryTypes[memIdx];
+		auto memType = memoryProperties.memoryTypes[memIdx];
 		if (!(1 << memIdx & memReqs.memoryTypeBits)) continue; // memory type bits do not match
 		if ((memType.propertyFlags & requiredProperties) == requiredProperties) return memIdx;
 	}
@@ -128,8 +128,8 @@ DeviceMemoryManager::Allocation::Allocation(DeviceMemoryManager& dmm, uint32_t m
 	: dmm(dmm), memTypeIdx(memTypeIdx), memProps(memProps), size(dmm.allocBlockSizes[memTypeIdx]), offset(0u)
 	, subAllocations(0u), bytesUsed(0u)
 {
-	auto& memoryAllocFI = vk::MemoryAllocateFlagsInfo{}.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress); // Enable device addresses
-	auto& memoryAllocInfo = vk::MemoryAllocateInfo{}
+	auto memoryAllocFI = vk::MemoryAllocateFlagsInfo{}.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress); // Enable device addresses
+	auto memoryAllocInfo = vk::MemoryAllocateInfo{}
 		.setPNext(&memoryAllocFI)
 		.setAllocationSize(size)
 		.setMemoryTypeIndex(memTypeIdx);

@@ -36,7 +36,7 @@ Shader::Shader(vk::SharedDevice device, const std::string& shaderSrcFileName, vk
 	stream.seekg(0);
 	stream.read(reinterpret_cast<char*>(binary.data()), fileSize);
 
-	auto& shaderCI = vk::ShaderModuleCreateInfo{}.setCode(binary);
+	auto shaderCI = vk::ShaderModuleCreateInfo{}.setCode(binary);
 	shaderModule = device->createShaderModuleUnique(shaderCI);
 
 	shaderStageInfo = vk::PipelineShaderStageCreateInfo{}
