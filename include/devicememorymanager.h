@@ -104,8 +104,12 @@ private:
 	std::vector<vk::DeviceSize> allocBlockSizes;
 	static const std::map<vk::MemoryPropertyFlags, vk::DeviceSize> storageBlockSizes;
 
-	const std::function<float(const Allocation*)> allocHeuristic = [](const Allocation* a) { return (a->size - a->bytesUsed) / a->size + (1.0f / a->subAllocations); };
-	const std::function<bool(const Allocation*, const Allocation*)> allocHeuristicCmp = [this](const Allocation* a, const Allocation* b) { return allocHeuristic(a) < allocHeuristic(b); }; // We want max heap behavious, 
+	struct allocHeuristicCmp {
+		const std::function<float(const Allocation*)> allocHeuristic = [](const Allocation* a) {
+			return (a->size - a->bytesUsed) / a->size + (1.0f / a->subAllocations);
+		};
+		const float operator()(const Allocation* a, const Allocation* b) const { return allocHeuristic(a) < allocHeuristic(b); }
+	};
 
 	void setAllocBlockSizes();
 

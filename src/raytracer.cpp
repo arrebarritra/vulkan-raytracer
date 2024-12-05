@@ -20,7 +20,7 @@ const void* Raytracer::raytracingFeaturesChain = &rtpFeatures;
 Raytracer::Raytracer()
 	: Application("Vulkan raytracer", 800, 600, vk::ApiVersion11,
 				  nullptr, nullptr, raytracingRequiredExtensions, raytracingFeaturesChain,
-				  true, true, false, FRAMES_IN_FLIGHT,
+				  true, false, false, FRAMES_IN_FLIGHT,
 				  vk::ImageUsageFlagBits::eTransferDst, { vk::Format::eB8G8R8A8Srgb },
 				  { vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo })
 {
@@ -52,7 +52,7 @@ Raytracer::Raytracer()
 		.setArrayLayers(1u)
 		.setSamples(vk::SampleCountFlagBits::e1)
 		.setTiling(vk::ImageTiling::eOptimal)
-		.setUsage(vk::ImageUsageFlagBits::eStorage)
+		.setUsage(vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc)
 		.setInitialLayout(vk::ImageLayout::eUndefined);
 	storageImage = std::make_unique<Image>(device, *dmm, *rch, storageImageCI, nullptr, MemoryStorage::DevicePersistent);
 
@@ -72,8 +72,7 @@ Raytracer::Raytracer()
 	std::array matrices = { glm::mat4(1.0f), glm::mat4(1.0f) };
 	auto bufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(matrices))
-		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer)
-		.setQueueFamilyIndices(std::get<uint32_t>(*transferQueue));
+		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
 	uniformBuffer = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ sizeof(matrices), (char*)matrices.data() }, MemoryStorage::DeviceDynamic);
 
 	// Create resources
@@ -159,7 +158,9 @@ void Raytracer::createDescriptorSets() {
 		.setDescriptorSetCount(1u)
 		.setSetLayouts(*descriptorSetLayout);
 	descriptorSet = device->allocateDescriptorSets(descriptorSetAI).front();
+}
 
+void Raytracer::updateDescriptorSets() {
 	// Writes
 	auto writeDescriptorAccelerationStructure = vk::WriteDescriptorSetAccelerationStructureKHR{}.setAccelerationStructures(*as->tlas);
 	auto accelerationStructureWrite = vk::WriteDescriptorSet{}
@@ -187,8 +188,8 @@ void Raytracer::createDescriptorSets() {
 		.setBufferInfo(uniformBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
-	std::array writeDescriptorSets = { accelerationStructureWrite, resultImageWrite, uniformBufferWrite };
-	device->updateDescriptorSets(writeDescriptorSets, nullptr);
+	descriptorWrites = { accelerationStructureWrite, resultImageWrite, uniformBufferWrite };
+	device->updateDescriptorSets(descriptorWrites, nullptr);
 }
 
 void Raytracer::recordCommandbuffer(uint32_t idx) {
@@ -229,10 +230,6 @@ void Raytracer::recordCommandbuffer(uint32_t idx) {
 
 void Raytracer::drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
 						  vk::SharedFence frameFinishedFence) {
-	// For Nsight frame debugging
-	//as = std::make_unique<AccelerationStructure>(device, *dmm, *rch, scene, graphicsQueue);
-	//createDescriptorSets();
-
 	recordCommandbuffer(frameIdx);
 	raytraceFinishedSemaphore[frameIdx] = vk::SharedHandle(device->createSemaphore({}), device);
 

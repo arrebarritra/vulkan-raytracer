@@ -69,7 +69,7 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::allocateR
 			}
 			break;
 		case AllocationStrategy::Heuristic:
-			std::priority_queue < Allocation*, std::priority_queue<Allocation*>::container_type, decltype(allocHeuristicCmp)> allocPrio;
+			std::priority_queue<Allocation*, std::priority_queue<Allocation*>::container_type, allocHeuristicCmp> allocPrio;
 			for (auto& allocation : allocations[memTypeIdx]) {
 				// Try fast strategy
 				try {

@@ -17,9 +17,10 @@ public:
 	vk::SharedFence readFinishedFence, writeFinishedFence;
 
 protected:
-	ManagedResource(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::MemoryPropertyFlags memProps);
+	ManagedResource(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::MemoryPropertyFlags memProps, bool tranferRead = false, bool transferWrite = false);
 	// Disable copy (we don't want to inadvertently destroy allocated memory blocks)
 	ManagedResource(const ManagedResource&) = delete;
+	~ManagedResource();
 	ManagedResource operator=(const ManagedResource&) = delete;
 
 	virtual std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) = 0;

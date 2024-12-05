@@ -4,23 +4,18 @@
 namespace vkrt {
 
 Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
-	: ManagedResource(device, dmm, rch, memProps)
+	: ManagedResource(device, dmm, rch, memProps,
+					  static_cast<bool>(imageCI.usage& vk::ImageUsageFlagBits::eTransferSrc),
+					  static_cast<bool>(imageCI.usage& vk::ImageUsageFlagBits::eTransferDst) || (data.size() != 0 && !(memProps & vk::MemoryPropertyFlagBits::eHostVisible)))
 	, imageCI(imageCI
-			.setUsage(imageCI.usage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst)  // Force transfer flags to be set to enable copying
-			.setTiling(vk::ImageTiling::eOptimal)) // Only allow optimal tiling images for simplicity, defer to buffer for linear images
+			  .setUsage(imageCI.usage | ((data.size() != 0 && !(memProps & vk::MemoryPropertyFlagBits::eHostVisible)) ? vk::ImageUsageFlagBits::eTransferDst : vk::ImageUsageFlags{}))
+			  .setTiling(vk::ImageTiling::eOptimal)) // Only allow optimal tiling images for simplicity, defer to buffer for linear images
 	, image(device->createImageUnique(imageCI))
 {
 	auto memReqs = device->getImageMemoryRequirements(*image);
 	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindImageMemory(*image, *memBlock->allocation.memory, memBlock->offset);
 	if (data.size() != 0) write(data);
-}
-
-Image::~Image() {
-	// Complete pending submits
-	if (device->getFenceStatus(*readFinishedFence) == vk::Result::eNotReady || device->getFenceStatus(*writeFinishedFence) == vk::Result::eNotReady) {
-		device->waitForFences(*rch.submit(), vk::True, std::numeric_limits<uint64_t>::max());
-	}
 }
 
 std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> data) {
@@ -38,11 +33,11 @@ std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> da
 		return std::nullopt;
 	} else {
 		// Create and read from staging buffer
-		auto stagingImageCI = imageCI;
-		stagingImageCI
-			.setUsage(vk::ImageUsageFlagBits::eTransferSrc)
+		auto stagedImageCI = imageCI;
+		stagedImageCI
+			.setUsage(imageCI.usage | vk::ImageUsageFlagBits::eTransferSrc)
 			.setInitialLayout(vk::ImageLayout::eTransferSrcOptimal);
-		auto staged = Image(device, dmm, rch, stagingImageCI, data, MemoryStorage::HostStaging);
+		auto staged = Image(device, dmm, rch, stagedImageCI, data, MemoryStorage::HostStaging);
 
 		auto imgCp = vk::ImageCopy{}
 			.setExtent(imageCI.extent)
@@ -67,9 +62,11 @@ std::vector<char> Image::read() {
 		return data;
 	} else {
 		// Create and write to staging buffer
-		auto stagingImageCI = imageCI;
-		stagingImageCI.setInitialLayout(vk::ImageLayout::eTransferDstOptimal);
-		auto staged = Image(device, dmm, rch, stagingImageCI, nullptr, MemoryStorage::HostDownload);
+		auto stagedImageCI = imageCI;
+		stagedImageCI
+			.setUsage(imageCI.usage | vk::ImageUsageFlagBits::eTransferDst)
+			.setInitialLayout(vk::ImageLayout::eTransferDstOptimal);
+		auto staged = Image(device, dmm, rch, stagedImageCI, nullptr, MemoryStorage::HostDownload);
 
 		auto imgCp = vk::ImageCopy{}
 			.setExtent(imageCI.extent)
@@ -85,52 +82,60 @@ std::vector<char> Image::read() {
 }
 
 vk::SharedFence Image::copyFrom(vk::Image srcImage, vk::ImageCopy imgCp, vk::ImageLayout layout) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferSrc)
+		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
 	writeFinishedFence = rch.recordCopyCmd(srcImage, *image, imgCp, layout);
 	return writeFinishedFence;
 }
 
 vk::SharedFence Image::copyFrom(Image& srcImage, vk::ImageCopy imgCp, vk::ImageLayout layout) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferSrc)
+		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
 	writeFinishedFence = rch.recordCopyCmd(*srcImage.image, *image, imgCp, layout);
 	srcImage.readFinishedFence = writeFinishedFence;
 	return writeFinishedFence;
 }
 
 vk::SharedFence Image::copyFrom(vk::Buffer srcBuffer, vk::BufferImageCopy bfrImgCp, vk::ImageLayout layout) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferSrc)
+		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
 	writeFinishedFence = rch.recordCopyCmd(srcBuffer, *image, bfrImgCp, layout);
 	return writeFinishedFence;
 }
 
 vk::SharedFence Image::copyFrom(Buffer& srcBuffer, vk::BufferImageCopy bfrImgCp, vk::ImageLayout layout) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferSrc)
+		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
 	writeFinishedFence = rch.recordCopyCmd(*srcBuffer.buffer, *image, bfrImgCp, layout);
 	srcBuffer.readFinishedFence = writeFinishedFence;
 	return writeFinishedFence;
 }
 
 vk::SharedFence Image::copyTo(vk::Image dstImage, vk::ImageCopy imgCp, vk::ImageLayout dstLayout) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferDst)
+		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
 	readFinishedFence = rch.recordCopyCmd(*image, dstImage, imgCp, dstLayout);
 	return readFinishedFence;
 }
 
 vk::SharedFence Image::copyTo(Image& dstImage, vk::ImageCopy imgCp, vk::ImageLayout dstLayout) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferDst)
+		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
 	readFinishedFence = rch.recordCopyCmd(*image, *dstImage.image, imgCp, dstLayout);
 	dstImage.writeFinishedFence = readFinishedFence;
 	return readFinishedFence;
 }
 
 vk::SharedFence Image::copyTo(vk::Buffer dstBuffer, vk::BufferImageCopy bfrImgCp) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferDst)
+		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
 	readFinishedFence = rch.recordCopyCmd(*image, dstBuffer, bfrImgCp);
 	return readFinishedFence;
 }
 
 vk::SharedFence Image::copyTo(Buffer& dstBuffer, vk::BufferImageCopy bfrImgCp) {
-	CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
+	if (imageCI.usage & vk::ImageUsageFlagBits::eTransferDst)
+		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes into current image has finished before reading
 	readFinishedFence = rch.recordCopyCmd(*image, *dstBuffer.buffer, bfrImgCp);
 	dstBuffer.writeFinishedFence = readFinishedFence;
 	return readFinishedFence;

@@ -21,7 +21,6 @@ class Image : public ManagedResource {
 public:
 	Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data = nullptr,
 		  const vk::MemoryPropertyFlags& memProps = ImageMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Heuristic);
-	~Image();
 
 	vk::Image operator*() { return *image; }
 

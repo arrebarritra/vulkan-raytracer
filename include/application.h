@@ -81,7 +81,7 @@ private:
 
 	// Extensions and features
 	std::set<const char*, cstrless> instanceExtensions;
-	std::set<const char*, cstrless> validationLayers{
+	std::set<const char*, cstrless> layers{
 #ifndef NDEBUG
 		"VK_LAYER_KHRONOS_validation"
 #endif

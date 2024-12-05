@@ -37,8 +37,11 @@ private:
 	vk::UniquePipeline raytracingPipeline;
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
 	std::unique_ptr<Buffer> raygenShaderBindingTable, missShaderBindingTable, hitShaderBindingTable;
+
 	vk::UniqueDescriptorPool descriptorPool;
 	vk::DescriptorSet descriptorSet;
+	std::vector<vk::WriteDescriptorSet> descriptorWrites;
+
 	std::unique_ptr<Shader> raygen, miss, hit;
 
 	std::array<vk::SharedSemaphore, FRAMES_IN_FLIGHT> raytraceFinishedSemaphore;
@@ -47,6 +50,7 @@ private:
 	void createRaytracingPipeline();
 	void createShaderBindingTable();
 	void createDescriptorSets();
+	void updateDescriptorSets();
 	void recordCommandbuffer(uint32_t idx);
 
 	void drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,

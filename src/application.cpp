@@ -1,6 +1,7 @@
 #include <application.h>
 #include <logging.h>
 #include <tuple>
+#include <utils.h>
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -33,10 +34,10 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 
 	// Get required GLFW extensions
 	glfwInit();
-	std::vector<const char*> glfwExtensions;
 	uint32_t glfwReqExtCount;
 	auto glfwReqExt = glfwGetRequiredInstanceExtensions(&glfwReqExtCount);
-	for (int i = 0; i < glfwReqExtCount; i++) glfwExtensions.push_back(glfwReqExt[i]);
+	std::vector<const char*> glfwExtensions(glfwReqExtCount);
+	for (int i = 0; i < glfwReqExtCount; i++) glfwExtensions[i] = glfwReqExt[i];
 
 	// Create instance
 	for (const auto& ext : glfwExtensions)
@@ -44,7 +45,7 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 	for (const auto& ext : appendInstanceExtensions)
 		instanceExtensions.insert(ext);
 	for (const auto& ext : appendLayers)
-		validationLayers.insert(ext);
+		layers.insert(ext);
 
 	featuresChain.setPNext(&bufferDeviceAddressFeatures);
 	if (additionalFeaturesChain) {
@@ -77,7 +78,7 @@ Application::~Application() {
 void Application::createInstance() {
 	std::vector<const char*> instanceExtensionsData, validationLayersData;
 	std::copy(instanceExtensions.begin(), instanceExtensions.end(), std::back_inserter(instanceExtensionsData));
-	std::copy(validationLayers.begin(), validationLayers.end(), std::back_inserter(validationLayersData));
+	std::copy(layers.begin(), layers.end(), std::back_inserter(validationLayersData));
 	auto appInfo = vk::ApplicationInfo{}
 		.setPApplicationName(appName.c_str())
 		.setApiVersion(apiVersion)
@@ -109,7 +110,7 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 	auto physicalDevices = instance->enumeratePhysicalDevices();
 	std::vector<vk::PhysicalDevice> eligibleDevices;
 	eligibleDevices.reserve(physicalDevices.size());
-	auto queueFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
+	auto queueFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer; // Main queue
 
 	for (const auto& pd : physicalDevices) {
 		// Get device extensions
@@ -165,10 +166,10 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 				  auto memHeapsB = b.getMemoryProperties().memoryHeaps;
 				  int memA, memB;
 
-				  for (auto& heap : memHeapsA) {
+				  for (const auto& heap : memHeapsA) {
 					  if (heap.flags & vk::MemoryHeapFlagBits::eDeviceLocal) memA = heap.size;
 				  }
-				  for (auto& heap : memHeapsB) {
+				  for (const auto& heap : memHeapsB) {
 					  if (heap.flags & vk::MemoryHeapFlagBits::eDeviceLocal) memB = heap.size;
 				  }
 
@@ -185,25 +186,26 @@ std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bo
 	std::array selectedQueues{ -1u, -1u, -1u };
 
 	// Search for graphics queue
-	uint32_t currQueueIndex = 0u;
+	uint32_t currQueueIndex = -1u;
 	for (const auto& qfp : qfps) {
-		if ((qfp.queueFlags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer)) &&
+		currQueueIndex++;
+		if (selectedQueues[0] == -1u && utils::isSubset(vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer, qfp.queueFlags) &&
 			physicalDevice.getSurfaceSupportKHR(currQueueIndex, *surface)) {
 			selectedQueues[0] = currQueueIndex;
+			continue;
 		}
-		if (separateTransferQueue) {
-			if ((qfp.queueFlags & vk::QueueFlagBits::eTransfer) &&
-				!(qfp.queueFlags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute))) {
+		if (separateTransferQueue && selectedQueues[1] == -1u) {
+			if (utils::isSubset(vk::QueueFlags{vk::QueueFlagBits::eTransfer}, qfp.queueFlags)) {
 				selectedQueues[1] = currQueueIndex;
+				continue;
 			}
 		}
-		if (separateComputeQueue) {
-			if ((qfp.queueFlags & vk::QueueFlagBits::eCompute) &&
-				!(qfp.queueFlags & vk::QueueFlagBits::eGraphics)) {
+		if (separateComputeQueue && selectedQueues[2] == -1u) {
+			if (utils::isSubset(vk::QueueFlags{vk::QueueFlagBits::eCompute}, qfp.queueFlags)) {
 				selectedQueues[2] = currQueueIndex;
+				continue;
 			}
 		}
-		currQueueIndex++;
 	}
 
 	return selectedQueues;
@@ -264,7 +266,7 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 
 	// Find format
 	for (const auto& pf : preferredFormats) {
-		if (auto& it = std::find_if(availableFormats.begin(), availableFormats.end(),
+		if (const auto& it = std::find_if(availableFormats.begin(), availableFormats.end(),
 									[pf](vk::SurfaceFormatKHR format) {
 										return format.format == pf.format && format.colorSpace == pf.colorSpace;
 									}); it != availableFormats.end()) {
@@ -275,7 +277,7 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 
 	// Find presentation mode
 	for (const auto& ppm : preferredPresModes) {
-		if (auto& it = std::find(availablePresModes.begin(), availablePresModes.end(), ppm); it != availablePresModes.end()) {
+		if (const auto& it = std::find(availablePresModes.begin(), availablePresModes.end(), ppm); it != availablePresModes.end()) {
 			presentMode = *it;
 			break;
 		};
