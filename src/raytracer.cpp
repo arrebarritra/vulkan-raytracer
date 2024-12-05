@@ -79,6 +79,8 @@ Raytracer::Raytracer()
 	createRaytracingPipeline();
 	createShaderBindingTable();
 	createDescriptorSets();
+	updateDescriptorSets();
+
 }
 
 void Raytracer::createCommandPools() {
