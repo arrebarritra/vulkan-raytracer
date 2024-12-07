@@ -18,7 +18,7 @@ auto rtpFeatures = vk::PhysicalDeviceRayTracingPipelineFeaturesKHR{}.setRayTraci
 const void* Raytracer::raytracingFeaturesChain = &rtpFeatures;
 
 Raytracer::Raytracer()
-	: Application("Vulkan raytracer", 800, 600, vk::ApiVersion11,
+	: Application("Vulkan raytracer", 1280, 720, vk::ApiVersion11,
 				  nullptr, nullptr, raytracingRequiredExtensions, raytracingFeaturesChain,
 				  true, false, false, FRAMES_IN_FLIGHT,
 				  vk::ImageUsageFlagBits::eTransferDst, { vk::Format::eB8G8R8A8Srgb },
@@ -34,7 +34,10 @@ Raytracer::Raytracer()
 	raytraceCmdBuffers = device->allocateCommandBuffersUnique(cmdBufferAI);
 
 	// Create acceleration structure
-	glm::vec3 vertices[3]{ glm::vec3(1.0f, 1.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f) };
+	glm::vec3 vertices[3]{ 
+		glm::vec3(1.0f, 1.0f, 0.0f), 
+		glm::vec3(-1.0f, 1.0f, 0.0f), 
+		glm::vec3(0.0f, -1.0f, 0.0f) };
 	uint32_t indices[3] = { 0u, 1u, 2u };
 	scene.meshPool.emplace_back(device, *dmm, *rch, vertices, indices);
 	scene.addObject(&scene.root, glm::mat4(1.0f), 0);
@@ -69,7 +72,19 @@ Raytracer::Raytracer()
 	storageImageView = device->createImageViewUnique(storageImViewCI);
 
 	// Create and fill uniform buffer
-	std::array matrices = { glm::mat4(1.0f), glm::mat4(1.0f) };
+	std::array matrices = { 
+		glm::mat4(
+			1.0f, 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.0f, 0.0f, 2.5f, 1.0f
+		), 
+		glm::mat4(
+			1.03f, 0.0f, 0.0f, 0.0f,
+			0.0f, 0.58f, 0.0f, 0.0f,
+			0.0f, 0.0f, 0.0f, -10.0f,
+			0.0f, 0.0f, -1.0f, 10.0f
+		) };
 	auto bufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(matrices))
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
@@ -122,7 +137,7 @@ void Raytracer::createRaytracingPipeline() {
 
 	shaderGroups = { vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eGeneral).setGeneralShader(0),
 					 vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eGeneral).setGeneralShader(1),
-					 vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup).setGeneralShader(2) };
+					 vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup).setClosestHitShader(2) };
 
 	auto raytracingPipelineCI = vk::RayTracingPipelineCreateInfoKHR{}
 		.setStages(shaderStages)
@@ -136,13 +151,13 @@ void Raytracer::createRaytracingPipeline() {
 
 void Raytracer::createShaderBindingTable() {
 	uint32_t handleSize = utils::alignedOffset(raytracingPipelineProperties.shaderGroupHandleSize, raytracingPipelineProperties.shaderGroupHandleAlignment);
-	auto shaderGroupHandles = device->getRayTracingShaderGroupHandlesKHR<char>(*raytracingPipeline, 0u, shaderGroups.size() * sizeof(char), shaderGroups.size() * handleSize);
+	auto shaderGroupHandles = device->getRayTracingShaderGroupHandlesKHR<char>(*raytracingPipeline, 0u, shaderGroups.size(), shaderGroups.size() * handleSize);
 	auto bufferCI = vk::BufferCreateInfo{}
 		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
 		.setSize(handleSize);
-	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, shaderGroupHandles[0], MemoryStorage::DeviceDynamic);
-	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, shaderGroupHandles[1], MemoryStorage::DeviceDynamic);
-	hitShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, shaderGroupHandles[2], MemoryStorage::DeviceDynamic);
+	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ handleSize, shaderGroupHandles.data() }, MemoryStorage::DeviceDynamic);
+	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ handleSize, shaderGroupHandles.data() + handleSize }, MemoryStorage::DeviceDynamic);
+	hitShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ handleSize, shaderGroupHandles.data() + 2u * handleSize }, MemoryStorage::DeviceDynamic);
 }
 
 void Raytracer::createDescriptorSets() {

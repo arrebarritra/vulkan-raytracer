@@ -17,9 +17,10 @@ public:
 	SceneObject& operator=(const SceneObject&) = delete;
 
 	glm::mat4 transform;
-	std::optional<int> meshIdx;
+	std::optional<uint32_t> meshIdx;
 
 private:
+	uint32_t depth;
 	SceneObject* parent;
 	std::list<SceneObject> children;
 };
@@ -34,7 +35,7 @@ public:
 	uint32_t objectCount;
 	std::vector<Mesh> meshPool;
 
-	void addObject(SceneObject* parent = nullptr, glm::mat4& transform = glm::mat4(1.0f), std::optional<uint32_t> meshIdx = std::nullopt);
+	SceneObject& addObject(SceneObject* parent = nullptr, glm::mat4& transform = glm::mat4(1.0f), std::optional<uint32_t> meshIdx = std::nullopt);
 
 
 	// Stackless iterator
@@ -56,21 +57,22 @@ public:
 			, depth(0u)
 			, nodeAtDepth(std::vector<std::list<SceneObject>::iterator>(maxDepth))
 			, transformAtDepth(std::vector<glm::mat4>(maxDepth + 1)) {
-			if (root) transformAtDepth[0] = root->transform;
+			if (root) { transformAtDepth[0] = root->transform; }
 		};
-		reference operator*() const { return depth == 0u ? *root : *nodeAtDepth[depth - 1u]; }
-		pointer operator->() { return depth == 0 ? root : &(*nodeAtDepth[depth - 1u]); }
+#define nodeDepth depth - 1u
+		reference operator*() const { return depth == 0u ? *root : *nodeAtDepth[nodeDepth]; }
+		pointer operator->() { return depth == 0 ? root : &(*nodeAtDepth[nodeDepth]); }
 
 		iterator& operator++() {
 			if ((**this).children.size() > 0) {
-				nodeAtDepth[depth] = (**this).children.begin();
+				nodeAtDepth[nodeDepth + 1u] = (**this).children.begin();
 				transformAtDepth[depth + 1u] = (**this).children.front().transform * transformAtDepth[depth];
 				depth++;
 			} else {
-				for (; depth > 0 && (**this).parent->children.end() == ++nodeAtDepth[depth - 1u]; depth--) {}
+				for (; depth > 0 && (**this).parent->children.end() == ++nodeAtDepth[nodeDepth]; depth--) {}
 				if (depth == 0) {
 					root = nullptr;
-					return iterator(nullptr, 0); 
+					return iterator(nullptr, 0);
 				}// end
 				transformAtDepth[depth] = (**this).transform * transformAtDepth[depth - 1u];
 			}
@@ -88,8 +90,8 @@ public:
 	private:
 		pointer root;
 		uint32_t depth;
-		std::vector<std::list<value_type>::iterator> nodeAtDepth; // "stack"
-		std::vector<glm::mat4> transformAtDepth; // keep track of transforms instead of inverting
+		std::vector<std::list<value_type>::iterator> nodeAtDepth; // "Stack"
+		std::vector<glm::mat4> transformAtDepth; // Keep track of transforms instead of inverting
 	};
 
 	iterator begin() { return iterator(&root, maxDepth); };
