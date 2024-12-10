@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Add all source files
 set(SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res")
 set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set(SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
@@ -48,6 +49,7 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES})
 string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
 target_compile_definitions(${PROJECT_NAME}
     PRIVATE PROJECT_DIR="${PROJECT_SOURCE_DIR}/"
+    PRIVATE RESOURCE_DIR="${RESOURCE_DIR}/"
     PRIVATE SHADER_BINARY_DIR="${SHADER_BINARY_DIR}"
     PRIVATE SOURCE_PATH_SIZE=${SOURCE_PATH_SIZE}
 )
@@ -58,12 +60,13 @@ find_package(Vulkan REQUIRED)
 
 add_subdirectory("${EXTERNAL_FOLDER}/glfw" EXCLUDE_FROM_ALL)
 add_subdirectory("${EXTERNAL_FOLDER}/glm" EXCLUDE_FROM_ALL)
+add_subdirectory("${EXTERNAL_FOLDER}/assimp" EXCLUDE_FROM_ALL)
 
 target_link_libraries(${PROJECT_NAME}
-  PUBLIC Vulkan::Vulkan glm::glm glfw
+  PUBLIC Vulkan::Vulkan glm::glm glfw assimp
 )
 
-add_dependencies(${PROJECT_NAME} glfw)
+add_dependencies(${PROJECT_NAME} glfw assimp)
 
 # Compile shaders
 find_program(glslc_executable NAMES glslc HINTS Vulkan::glslc)

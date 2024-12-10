@@ -1,9 +1,11 @@
 #pragma once
 
 #include <iterator>
+#include <filesystem>
 #include <mesh.h>
 #include <glm/glm.hpp>
-#include <unordered_set>
+#include <assimp/scene.h>
+#include <camera.h>
 
 namespace vkrt {
 
@@ -12,12 +14,12 @@ class SceneObject {
 	friend class Scene;
 
 public:
-	SceneObject(SceneObject* parent, glm::mat4& transform, std::optional<uint32_t> meshIdx);
+	SceneObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices);
 	SceneObject(const SceneObject&) = delete;
 	SceneObject& operator=(const SceneObject&) = delete;
 
 	glm::mat4 transform;
-	std::optional<uint32_t> meshIdx;
+	std::vector<uint32_t> meshIndices;
 
 private:
 	uint32_t depth;
@@ -28,14 +30,15 @@ private:
 class Scene {
 
 public:
-	Scene();
+	Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch);
 
 	SceneObject root;
 	uint32_t maxDepth;
 	uint32_t objectCount;
 	std::vector<Mesh> meshPool;
 
-	SceneObject& addObject(SceneObject* parent = nullptr, glm::mat4& transform = glm::mat4(1.0f), std::optional<uint32_t> meshIdx = std::nullopt);
+	SceneObject& addObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices);
+	void loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem::path path);
 
 
 	// Stackless iterator
@@ -96,6 +99,13 @@ public:
 
 	iterator begin() { return iterator(&root, maxDepth); };
 	iterator end() { return iterator(nullptr, 0); };
+
+private:
+	void processModelRecursive(SceneObject* parent, const aiScene* scene, const aiNode* node, uint32_t baseMeshOffset);
+
+	vk::SharedDevice device;
+	DeviceMemoryManager& dmm;
+	ResourceCopyHandler& rch;
 };
 
 }

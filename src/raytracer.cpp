@@ -1,6 +1,10 @@
 #include <raytracer.h>
 #include <utils.h>
+#include <camera.h>
 #include <glm/gtc/matrix_transform.hpp>
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
 
 namespace vkrt {
 
@@ -23,7 +27,12 @@ Raytracer::Raytracer()
 				  true, false, false, FRAMES_IN_FLIGHT,
 				  vk::ImageUsageFlagBits::eTransferDst, { vk::Format::eB8G8R8A8Srgb },
 				  { vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo })
+	, scene(device, *dmm, *rch)
 {
+	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	if (glfwRawMouseMotionSupported())
+		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
 	auto pdPropsTemp = vk::PhysicalDeviceProperties2({}, &raytracingPipelineProperties);
 	physicalDevice.getProperties2(&pdPropsTemp);
 
@@ -34,16 +43,10 @@ Raytracer::Raytracer()
 	raytraceCmdBuffers = device->allocateCommandBuffersUnique(cmdBufferAI);
 
 	// Create acceleration structure
-	glm::vec3 vertices[3]{ 
-		glm::vec3(1.0f, 1.0f, 0.0f), 
-		glm::vec3(-1.0f, 1.0f, 0.0f), 
-		glm::vec3(0.0f, -1.0f, 0.0f) };
-	uint32_t indices[3] = { 0u, 1u, 2u };
-	scene.meshPool.emplace_back(device, *dmm, *rch, vertices, indices);
-	scene.addObject(&scene.root, glm::mat4(1.0f), 0);
+	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"NewSponza_Main_glTF_003.gltf");
 
-	CHECK_VULKAN_RESULT(device->waitForFences({ *scene.meshPool.back().vertices->writeFinishedFence, *scene.meshPool.back().indices->writeFinishedFence },
-											  vk::True, std::numeric_limits<uint64_t>::max()));
+	//CHECK_VULKAN_RESULT(device->waitForFences({ *scene.meshPool.back().vertices->writeFinishedFence, *scene.meshPool.back().indices->writeFinishedFence },
+	//										  vk::True, std::numeric_limits<uint64_t>::max()));
 	as = std::make_unique<AccelerationStructure>(device, *dmm, *rch, scene, graphicsQueue);
 
 	// Create storage image and view
@@ -71,20 +74,7 @@ Raytracer::Raytracer()
 		.setImage(**storageImage);
 	storageImageView = device->createImageViewUnique(storageImViewCI);
 
-	// Create and fill uniform buffer
-	std::array matrices = { 
-		glm::mat4(
-			1.0f, 0.0f, 0.0f, 0.0f,
-			0.0f, 1.0f, 0.0f, 0.0f,
-			0.0f, 0.0f, 1.0f, 0.0f,
-			0.0f, 0.0f, 2.5f, 1.0f
-		), 
-		glm::mat4(
-			1.03f, 0.0f, 0.0f, 0.0f,
-			0.0f, 0.58f, 0.0f, 0.0f,
-			0.0f, 0.0f, 0.0f, -10.0f,
-			0.0f, 0.0f, -1.0f, 10.0f
-		) };
+	std::array matrices = {	camera.getViewInv(), camera.getProjectionInv() };
 	auto bufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(matrices))
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
@@ -247,6 +237,9 @@ void Raytracer::recordCommandbuffer(uint32_t idx) {
 
 void Raytracer::drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
 						  vk::SharedFence frameFinishedFence) {
+	std::array matrices = { camera.getViewInv(), camera.getProjectionInv() };
+	uniformBuffer->write(vk::ArrayProxyNoTemporaries{ sizeof(matrices), (char*)matrices.data() });
+
 	recordCommandbuffer(frameIdx);
 	raytraceFinishedSemaphore[frameIdx] = vk::SharedHandle(device->createSemaphore({}), device);
 

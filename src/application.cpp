@@ -1,6 +1,7 @@
 #include <application.h>
 #include <logging.h>
 #include <tuple>
+#include <chrono>
 #include <utils.h>
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -98,6 +99,8 @@ void Application::createWindow() {
 	window = glfwCreateWindow(width, height, appName.c_str(), nullptr, nullptr);
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	glfwSetKeyCallback(window, keyCallback);
+	glfwSetCursorPosCallback(window, cursorPosCallback);
 }
 
 void Application::createSurface() {
@@ -282,8 +285,6 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 			break;
 		};
 	}
-
-
 }
 
 void Application::recreateSwapchain() {
@@ -308,6 +309,21 @@ void Application::framebufferResizeCallback(GLFWwindow* window, int width, int h
 	app->framebufferResized = true;
 }
 
+void Application::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+		glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+
+void Application::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
+	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+	if (!app->firstFrame)
+		app->camera.cursorPosCallback(xpos - app->lastXPos, ypos - app->lastYPos);
+	app->lastXPos = xpos;
+	app->lastYPos = ypos;
+	if (app->firstFrame) app->firstFrame = false;
+}
+
 void Application::renderLoop() {
 	// Create reusable fences and semaphores
 	std::vector<vk::SharedSemaphore> imageAcquiredSemaphores(framesInFlight);
@@ -329,6 +345,8 @@ void Application::renderLoop() {
 	// Render loop
 	uint32_t frameIdx = 0u;
 	while (!glfwWindowShouldClose(window)) {
+		auto frameStart = std::chrono::steady_clock::now();
+		camera.processKeyInput(window, frameTime);
 		CHECK_VULKAN_RESULT(device->waitForFences(*frameFinishedFences[frameIdx], vk::True, std::numeric_limits<uint64_t>::max()));
 
 		uint32_t imageIndex;
@@ -355,11 +373,8 @@ void Application::renderLoop() {
 		} catch (vk::OutOfDateKHRError const& e) {
 			handleResize();
 		}
-
 		glfwPollEvents();
-		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-			glfwSetWindowShouldClose(window, GLFW_TRUE);
-
+		frameTime = (std::chrono::steady_clock::now() - frameStart).count() / 1e9;
 		++frameIdx %= framesInFlight;
 	}
 

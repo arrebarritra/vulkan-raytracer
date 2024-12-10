@@ -16,7 +16,7 @@ AccelerationStructure::AccelerationStructure(vk::SharedDevice device, DeviceMemo
 																	  .setCommandPool(*commandPool)
 																	  .setCommandBufferCount(1u)
 																	  .setLevel(vk::CommandBufferLevel::ePrimary)).front()))
-, buildFinishedFence(vk::SharedFence(device->createFence(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled)), device))
+	, buildFinishedFence(vk::SharedFence(device->createFence(vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled)), device))
 {
 	blas.reserve(scene.meshPool.size());
 	blasBuffers.reserve(scene.meshPool.size());
@@ -83,8 +83,10 @@ vk::SharedFence AccelerationStructure::build(vk::BuildAccelerationStructureModeK
 
 // TODO: compaction, build in chunks to avoid stalling pipeline?, shared scratch buffer
 void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scratchBuffers, vk::BuildAccelerationStructureModeKHR mode) {
+	std::vector<vk::AccelerationStructureGeometryKHR> accelerationStructureGeometries;
 	std::vector<vk::AccelerationStructureBuildGeometryInfoKHR> accelerationStructureBGIs;
 	std::vector<vk::AccelerationStructureBuildRangeInfoKHR> accelerationStructureBRIs;
+	accelerationStructureGeometries.reserve(scene.meshPool.size());
 	accelerationStructureBRIs.reserve(scene.meshPool.size());
 	accelerationStructureBGIs.reserve(scene.meshPool.size());
 
@@ -102,7 +104,8 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 	blasBuffers.reserve(scene.meshPool.size());
 	scratchBuffers.reserve(scene.meshPool.size());
 	for (auto& mesh : scene.meshPool) {
-		auto accelerationStructureGeometry = vk::AccelerationStructureGeometryKHR{}
+		accelerationStructureGeometries.push_back(
+			vk::AccelerationStructureGeometryKHR{}
 			.setFlags(mesh.transparent ? vk::GeometryFlagsKHR{} : vk::GeometryFlagBitsKHR::eOpaque)
 			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
 			.setGeometry(vk::AccelerationStructureGeometryTrianglesDataKHR{}
@@ -112,12 +115,12 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 						 .setMaxVertex(mesh.nVertices - 1u)
 						 .setIndexType(vk::IndexType::eUint32)
 						 .setIndexData(device->getBufferAddress(**mesh.indices))
-						 .setTransformData(device->getBufferAddress(**transformBuffer)));
+						 .setTransformData(device->getBufferAddress(**transformBuffer))));
 		auto accelerationStuctureBGI = vk::AccelerationStructureBuildGeometryInfoKHR{}
 			.setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
 			.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-			.setGeometries(accelerationStructureGeometry);
-		auto accelerationStructureBSI = device->getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, accelerationStuctureBGI, mesh.nVertices);
+			.setGeometries(accelerationStructureGeometries.back());
+		auto accelerationStructureBSI = device->getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, accelerationStuctureBGI, mesh.nIndices / 3u);
 
 		auto blasBufferCI = vk::BufferCreateInfo{}
 			.setSize(accelerationStructureBSI.accelerationStructureSize)
@@ -135,7 +138,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 		scratchBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rch, vk::BufferCreateInfo{}
 															 .setSize(mode == vk::BuildAccelerationStructureModeKHR::eBuild ? accelerationStructureBSI.buildScratchSize : accelerationStructureBSI.updateScratchSize)
 															 .setUsage(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress),
-															 nullptr, MemoryStorage::DeviceDynamic));
+															 nullptr, MemoryStorage::DevicePersistent));
 
 		accelerationStructureBGIs.push_back(accelerationStuctureBGI
 											.setMode(mode)
@@ -143,7 +146,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 											.setDstAccelerationStructure(*blas.back())
 											.setScratchData(device->getBufferAddress(**scratchBuffers.back())));
 		accelerationStructureBRIs.push_back(vk::AccelerationStructureBuildRangeInfoKHR{}
-											.setPrimitiveCount(mesh.nIndices / 3)
+											.setPrimitiveCount(mesh.nIndices / 3u)
 											.setPrimitiveOffset(0u)
 											.setFirstVertex(0u)
 											.setTransformOffset(0u));
@@ -162,17 +165,17 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, 
 	uint32_t idx = 0;
 	for (auto& it = scene.begin(); it != scene.end(); it++) {
 		const auto& sceneObject = (*it);
-		if (sceneObject.meshIdx) {
+		for (auto meshIdx : sceneObject.meshIndices) {
 			std::array<std::array<float, 4Ui64>, 3Ui64> transformMatrix;
 			auto affineTransform = glm::mat3x4(glm::transpose(it.transform));
 			memcpy(transformMatrix.data(), &affineTransform, sizeof(transformMatrix));
 			instanceData.push_back(vk::AccelerationStructureInstanceKHR{}
 								   .setTransform(vk::TransformMatrixKHR{}.setMatrix(transformMatrix))
-								   .setInstanceCustomIndex(*sceneObject.meshIdx)
+								   .setInstanceCustomIndex(meshIdx)
 								   .setMask(0xFF)
 								   .setInstanceShaderBindingTableRecordOffset(0u)
 								   .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable)
-								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[*sceneObject.meshIdx])));
+								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[meshIdx])));
 			idx++;
 		}
 	}
