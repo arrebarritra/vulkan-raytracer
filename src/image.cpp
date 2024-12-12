@@ -3,13 +3,14 @@
 
 namespace vkrt {
 
-Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
+Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data,
+			 vk::ImageLayout targetLayout, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
 	: ManagedResource(device, dmm, rch, memProps,
 					  static_cast<bool>(imageCI.usage& vk::ImageUsageFlagBits::eTransferSrc),
 					  static_cast<bool>(imageCI.usage& vk::ImageUsageFlagBits::eTransferDst) || (data.size() != 0 && !(memProps & vk::MemoryPropertyFlagBits::eHostVisible)))
 	, imageCI(imageCI
-			  .setUsage(imageCI.usage | ((data.size() != 0 && !(memProps & vk::MemoryPropertyFlagBits::eHostVisible)) ? vk::ImageUsageFlagBits::eTransferDst : vk::ImageUsageFlags{}))
-			  .setTiling(vk::ImageTiling::eOptimal)) // Only allow optimal tiling images for simplicity, defer to buffer for linear images
+			  .setUsage(imageCI.usage |
+						((data.size() != 0 && !(memProps & vk::MemoryPropertyFlagBits::eHostVisible)) ? vk::ImageUsageFlagBits::eTransferDst : vk::ImageUsageFlags{})))
 	, image(device->createImageUnique(imageCI))
 {
 	auto memReqs = device->getImageMemoryRequirements(*image);
@@ -18,7 +19,42 @@ Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHand
 	if (data.size() != 0) write(data);
 }
 
-std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> data) {
+Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, std::filesystem::path imageFile,
+			 vk::ImageLayout targetLayout, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
+	: ManagedResource(device, dmm, rch, memProps,
+					  static_cast<bool>(imageCI.usage& vk::ImageUsageFlagBits::eTransferSrc),
+					  static_cast<bool>(imageCI.usage& vk::ImageUsageFlagBits::eTransferDst) || !(memProps & vk::MemoryPropertyFlagBits::eHostVisible))
+	, imageCI(imageCI
+			  .setUsage(imageCI.usage |
+						(!(memProps & vk::MemoryPropertyFlagBits::eHostVisible) ? vk::ImageUsageFlagBits::eTransferDst : vk::ImageUsageFlags{})))
+{
+	int x, y, n;
+	stbi_info(imageFile.string().c_str(), &x, &y, &n);
+	int requiredComponents = n == 3 ? 4 : n;
+	stbi_uc* imageData = stbi_load(imageFile.string().c_str(), &x, &y, &n, requiredComponents);
+	this->imageCI.setExtent(vk::Extent3D{ static_cast<uint32_t>(x), static_cast<uint32_t>(y), 1u });
+	switch (requiredComponents) {
+		case 1:
+			this->imageCI.setFormat(vk::Format::eR8Unorm);
+			break;
+		case 2:
+			this->imageCI.setFormat(vk::Format::eR8G8Unorm);
+			break;
+		case 4:
+			this->imageCI.setFormat(vk::Format::eR8G8B8A8Unorm);
+			break;
+	}
+
+	image = device->createImageUnique(this->imageCI);
+	auto memReqs = device->getImageMemoryRequirements(*image);
+	memBlock = dmm.allocateResource(memReqs, memProps, as);
+	device->bindImageMemory(*image, *memBlock->allocation.memory, memBlock->offset);
+
+	write({ static_cast<uint32_t>(x * y * requiredComponents), (char*)imageData });
+	stbi_image_free(imageData);
+}
+
+std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> data, vk::ImageLayout targetLayout) {
 	auto memReqs = device->getImageMemoryRequirements(*image);
 
 	if (memBlock->mapping) {
@@ -33,19 +69,21 @@ std::optional<vk::SharedFence> Image::write(vk::ArrayProxyNoTemporaries<char> da
 		return std::nullopt;
 	} else {
 		// Create and read from staging buffer
-		auto stagedImageCI = imageCI;
-		stagedImageCI
-			.setUsage(imageCI.usage | vk::ImageUsageFlagBits::eTransferSrc)
-			.setInitialLayout(vk::ImageLayout::eTransferSrcOptimal);
-		auto staged = Image(device, dmm, rch, stagedImageCI, data, MemoryStorage::HostStaging);
+		auto stagedBufferCI = vk::BufferCreateInfo{}
+			.setSize(data.size())
+			.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
+		auto staged = Buffer(device, dmm, rch, stagedBufferCI, data, MemoryStorage::HostStaging);
 
-		auto imgCp = vk::ImageCopy{}
-			.setExtent(imageCI.extent)
-			.setSrcOffset({ 0u, 0u, 0u })
-			.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0u, 0u, imageCI.arrayLayers }) // TODO: calculate aspect from format
-			.setDstOffset({ 0u, 0u, 0u })
-			.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0u, 0u, imageCI.arrayLayers });
-		writeFinishedFence = copyFrom(staged, imgCp);
+		auto bfrImgCp = vk::BufferImageCopy{}
+			.setBufferOffset(0u)
+			.setBufferRowLength(imageCI.extent.width)
+			.setBufferImageHeight(imageCI.extent.height)
+			.setImageExtent(imageCI.extent)
+			.setImageOffset({ 0u, 0u, 0u })
+			.setImageSubresource({ vk::ImageAspectFlagBits::eColor, 0u, 0u, imageCI.arrayLayers });
+		copyFrom(staged, bfrImgCp, targetLayout);
+		writeFinishedFence = rch.submit();
+		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy from staging buffer has finished
 		return writeFinishedFence;
 	}
 }
@@ -63,10 +101,8 @@ std::vector<char> Image::read() {
 	} else {
 		// Create and write to staging buffer
 		auto stagedImageCI = imageCI;
-		stagedImageCI
-			.setUsage(imageCI.usage | vk::ImageUsageFlagBits::eTransferDst)
-			.setInitialLayout(vk::ImageLayout::eTransferDstOptimal);
-		auto staged = Image(device, dmm, rch, stagedImageCI, nullptr, MemoryStorage::HostDownload);
+		stagedImageCI.setUsage(vk::ImageUsageFlagBits::eTransferDst);
+		auto staged = Image(device, dmm, rch, stagedImageCI, nullptr, vk::ImageLayout::eTransferDstOptimal, MemoryStorage::HostDownload);
 
 		auto imgCp = vk::ImageCopy{}
 			.setExtent(imageCI.extent)
@@ -75,7 +111,7 @@ std::vector<char> Image::read() {
 			.setDstOffset({ 0u, 0u, 0u })
 			.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0u, 0u, imageCI.arrayLayers });
 		copyTo(staged, imgCp);
-
+		readFinishedFence = rch.submit();
 		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy to staging buffer has finished
 		return staged.read();
 	}

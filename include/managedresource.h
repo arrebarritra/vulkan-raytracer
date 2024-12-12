@@ -23,9 +23,6 @@ protected:
 	~ManagedResource();
 	ManagedResource operator=(const ManagedResource&) = delete;
 
-	virtual std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) = 0;
-	virtual std::vector<char> read() = 0;
-
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;
 	ResourceCopyHandler& rch;

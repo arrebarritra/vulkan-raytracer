@@ -2,10 +2,14 @@
 
 #include <iterator>
 #include <filesystem>
-#include <mesh.h>
+
 #include <glm/glm.hpp>
 #include <assimp/scene.h>
 #include <camera.h>
+
+#include <mesh.h>
+#include <material.h>
+#include <texture.h>
 
 namespace vkrt {
 
@@ -36,6 +40,11 @@ public:
 	uint32_t maxDepth;
 	uint32_t objectCount;
 	std::vector<Mesh> meshPool;
+	std::vector<Material> materials;
+	std::vector<std::unique_ptr<Texture>> texturePool;
+	std::unordered_map<std::filesystem::path, uint32_t> texturesUsed;
+
+	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer;
 
 	SceneObject& addObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices);
 	void loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem::path path);

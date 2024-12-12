@@ -6,38 +6,29 @@
 
 namespace vkrt {
 
-class MeshKey {
-public:
-	bool transparent;
-	uint32_t nVertices, nIndices;
-	vk::Buffer vertices, indices;
+struct Vertex {
+	glm::vec3 pos, normal, tangent, bitangent;
+	glm::vec2 uv0, uv1;
+};
 
-	bool operator==(const MeshKey& m) {
-		return transparent == m.transparent && nVertices == m.nVertices && nIndices == m.nIndices
-			&& vertices == m.vertices && indices == m.indices;
-	}
+using Index = uint32_t;
+
+struct MeshInfo {
+	vk::DeviceAddress vertexBufferAddress, indexBufferAddress;
+	uint32_t materialIdx;
+
+	MeshInfo(vk::DeviceAddress vertexBufferAddress, vk::DeviceAddress indexBufferAddress, uint32_t materialIdx)
+		: vertexBufferAddress(vertexBufferAddress), indexBufferAddress(indexBufferAddress), materialIdx(materialIdx) {}
 };
 
 class Mesh {
 public:
-	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ArrayProxyNoTemporaries<glm::vec3> vertices, vk::ArrayProxyNoTemporaries<uint32_t> indices);
+	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ArrayProxyNoTemporaries<Vertex> vertices, vk::ArrayProxyNoTemporaries<Index> indices, uint32_t materialIdx = -1u);
 
 	bool transparent;
-	uint32_t nVertices, nIndices;
+	uint32_t nVertices, nIndices, materialIdx;
 	std::unique_ptr<Buffer> vertices, indices;
-	//std::optional<Buffer> vertexColours, vertexNormals, vertexUV;
-
-	MeshKey getMeshKey() {
-		return MeshKey{ transparent, nVertices, nIndices, **vertices, **indices };
-	};
 
 };
 
 }
-
-template<>
-struct std::hash<vkrt::MeshKey> {
-	size_t operator()(const vkrt::MeshKey& m) const {
-		return std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(&m.vertices)) ^ std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(&m.indices));
-	}
-};

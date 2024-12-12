@@ -7,13 +7,13 @@ namespace vkrt {
 Camera::Camera()
 	: position(glm::vec3(0.0f))
 	, direction(glm::vec3(0.0f, 0.0f, 1.0f))
-	, up(glm::vec3(0.0f, 1.0f, 0.0f))
+	, up(glm::vec3(0.0f, -1.0f, 0.0f))
 	, aspect(1.0f)
 	, near(0.1f)
 	, far(1000.0f)
 	, fov(0.4 * glm::pi<float>())
-	, speed(1.0f)
-	, sensitivity(0.001f) {}
+	, speed(2.0f)
+	, sensitivity(0.01f) {}
 
 Camera::Camera(const aiCamera* cam, float width, float height)
 	: aspect(static_cast<float>(width) / static_cast<float>(height))
@@ -28,21 +28,29 @@ Camera::Camera(const aiCamera* cam, float width, float height)
 }
 
 void Camera::processKeyInput(GLFWwindow* window, double dt) {
+	float speedMul;
+	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+		speedMul = 3.0f;
+	else
+		speedMul = 1.0f;
+
 	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-		position += speed * direction * static_cast<float>(dt);
+		position += speedMul * speed * direction * static_cast<float>(dt);
 	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-		position -= speed * direction * static_cast<float>(dt);
+		position -= speedMul * speed * direction * static_cast<float>(dt);
 	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-		position -= speed * glm::normalize(glm::cross(direction, up)) * static_cast<float>(dt);
+		position -= speedMul * speed * glm::normalize(glm::cross(direction, up)) * static_cast<float>(dt);
 	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-		position += speed * glm::normalize(glm::cross(direction, up)) * static_cast<float>(dt);
+		position += speedMul * speed * glm::normalize(glm::cross(direction, up)) * static_cast<float>(dt);
 }
 
-void Camera::cursorPosCallback(double dx, double dy) {
-	auto& rotX = glm::angleAxis(static_cast<float>(dx) * sensitivity / (glm::two_pi<float>()), -up);
-	auto& rotY = glm::angleAxis(static_cast<float>(dy) * sensitivity / (glm::two_pi<float>()), glm::normalize(glm::cross(direction, up)));
-	direction = rotX * direction;
-	direction = rotY * direction;
+void Camera::cursorPosCallback(GLFWwindow* window, double dx, double dy) {
+	if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
+		auto& rotX = glm::angleAxis(static_cast<float>(dx) * sensitivity / (glm::two_pi<float>()), -up);
+		auto& rotY = glm::angleAxis(static_cast<float>(dy) * sensitivity / (glm::two_pi<float>()), glm::normalize(glm::cross(direction, up)));
+		direction = rotX * direction;
+		direction = rotY * direction;
+	}
 }
 
 }

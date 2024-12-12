@@ -42,8 +42,8 @@ uint32_t DeviceMemoryManager::findMemoryTypeIdx(const vk::MemoryRequirements& me
 
 	for (uint32_t memIdx = 0u; memIdx < memoryProperties.memoryTypeCount; memIdx++) {
 		auto memType = memoryProperties.memoryTypes[memIdx];
-		if (!(1 << memIdx & memReqs.memoryTypeBits)) continue; // memory type bits do not match
-		if ((memType.propertyFlags & requiredProperties) == requiredProperties) return memIdx;
+		if (!((1 << memIdx) & memReqs.memoryTypeBits)) continue; // memory type bits do not match
+		if (utils::isSubset(requiredProperties, memType.propertyFlags)) return memIdx;
 	}
 
 	throw MemoryTypeUnavailableError();

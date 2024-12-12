@@ -10,6 +10,7 @@ set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res")
 set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set(SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+set(EXTERNAL_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/external")
 
 
 file(GLOB SOURCE_FILES CONFIGURE_DEPENDS
@@ -44,6 +45,7 @@ source_group("Header files" FILES ${HEADER_FILES})
 source_group("Shader files" FILES ${SHADER_FILES})
 
 include_directories(PRIVATE ${INCLUDE_DIR})
+include_directories(PRIVATE "${EXTERNAL_FOLDER}/stb")
 add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES})
 
 string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
@@ -55,7 +57,6 @@ target_compile_definitions(${PROJECT_NAME}
 )
 
 # Add dependencies
-set(EXTERNAL_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/external")
 find_package(Vulkan REQUIRED)
 
 add_subdirectory("${EXTERNAL_FOLDER}/glfw" EXCLUDE_FROM_ALL)

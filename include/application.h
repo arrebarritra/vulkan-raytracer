@@ -95,8 +95,12 @@ private:
 	};
 	std::set<const char*, cstrless> deviceExtensions{
 		vk::KHRSwapchainExtensionName,
-		vk::KHRBufferDeviceAddressExtensionName
+		vk::KHRBufferDeviceAddressExtensionName,
+		vk::KHRShaderNonSemanticInfoExtensionName
 	};
+#ifndef NDEBUG
+	std::vector<vk::ValidationFeatureEnableEXT> enabledValidationFeatures = { vk::ValidationFeatureEnableEXT::eDebugPrintf };
+#endif
 	vk::PhysicalDeviceFeatures2 featuresChain;
 
 	void createInstance();

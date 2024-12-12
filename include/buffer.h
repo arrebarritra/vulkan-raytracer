@@ -24,8 +24,8 @@ public:
 
 	vk::Buffer operator*() { return *buffer; }
 
-	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) override;
-	std::vector<char> read() override;
+	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data);
+	std::vector<char> read();
 
 	vk::SharedFence copyFrom(vk::Buffer srcBuffer, vk::BufferCopy bfrCp);
 	vk::SharedFence copyFrom(Buffer& srcBuffer, vk::BufferCopy bfrCp);

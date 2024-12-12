@@ -32,7 +32,7 @@ std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> d
 	} else {
 		// Create and read from staging buffer
 		auto stagedBufferCI = bufferCI;
-		stagedBufferCI.setUsage(bufferCI.usage | vk::BufferUsageFlagBits::eTransferSrc);
+		stagedBufferCI.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
 		auto staged = Buffer(device, dmm, rch, stagedBufferCI, data, MemoryStorage::HostStaging);
 		auto bfrCp = vk::BufferCopy{}.setSize(data.size());
 		copyFrom(staged, bfrCp);
@@ -55,7 +55,7 @@ std::vector<char> Buffer::read() {
 	} else {
 		// Create and write to staging buffer
 		auto stagedBufferCI = bufferCI;
-		stagedBufferCI.setUsage(bufferCI.usage | vk::BufferUsageFlagBits::eTransferDst);
+		stagedBufferCI.setUsage(vk::BufferUsageFlagBits::eTransferDst);
 		auto staged = Buffer(device, dmm, rch, stagedBufferCI, nullptr, MemoryStorage::HostDownload);
 		auto bfrCp = vk::BufferCopy{}.setSrcOffset(0u).setDstOffset(0u).setSize(memBlock->size);
 		copyTo(staged, bfrCp);

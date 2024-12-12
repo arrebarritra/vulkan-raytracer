@@ -48,6 +48,7 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 	for (const auto& ext : appendLayers)
 		layers.insert(ext);
 
+	featuresChain.features.setShaderInt64(vk::True);
 	featuresChain.setPNext(&bufferDeviceAddressFeatures);
 	if (additionalFeaturesChain) {
 		vk::PhysicalDeviceFeatures2* feature = (vk::PhysicalDeviceFeatures2*)featuresChain.pNext; // cast to access pNext field in features
@@ -80,6 +81,8 @@ void Application::createInstance() {
 	std::vector<const char*> instanceExtensionsData, validationLayersData;
 	std::copy(instanceExtensions.begin(), instanceExtensions.end(), std::back_inserter(instanceExtensionsData));
 	std::copy(layers.begin(), layers.end(), std::back_inserter(validationLayersData));
+
+
 	auto appInfo = vk::ApplicationInfo{}
 		.setPApplicationName(appName.c_str())
 		.setApiVersion(apiVersion)
@@ -89,6 +92,11 @@ void Application::createInstance() {
 		.setPApplicationInfo(&appInfo)
 		.setPEnabledExtensionNames(instanceExtensionsData)
 		.setPEnabledLayerNames(validationLayersData);
+
+#ifndef NDEBUG
+	auto validationFeatures = vk::ValidationFeaturesEXT{}.setEnabledValidationFeatures(enabledValidationFeatures);
+	instanceCI.setPNext(&validationFeatures);
+#endif
 
 	instance = vk::createInstanceUnique(instanceCI);
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
@@ -318,7 +326,7 @@ void Application::keyCallback(GLFWwindow* window, int key, int scancode, int act
 void Application::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 	if (!app->firstFrame)
-		app->camera.cursorPosCallback(xpos - app->lastXPos, ypos - app->lastYPos);
+		app->camera.cursorPosCallback(window, xpos - app->lastXPos, ypos - app->lastYPos);
 	app->lastXPos = xpos;
 	app->lastYPos = ypos;
 	if (app->firstFrame) app->firstFrame = false;

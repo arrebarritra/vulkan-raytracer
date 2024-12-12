@@ -4,6 +4,9 @@
 
 #include <managedresource.h>
 #include <buffer.h>
+#include <filesystem>
+
+#include <stb_image.h>
 
 namespace vkrt {
 
@@ -19,13 +22,15 @@ constexpr vk::MemoryPropertyFlags Texture = MemoryStorage::DevicePersistent;
 class Buffer;
 class Image : public ManagedResource {
 public:
-	Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data = nullptr,
+	Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, vk::ArrayProxyNoTemporaries<char> data = nullptr, vk::ImageLayout targetLayout = vk::ImageLayout::eUndefined,
+		  const vk::MemoryPropertyFlags& memProps = ImageMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Heuristic);
+	Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ImageCreateInfo imageCI, std::filesystem::path imageFile, vk::ImageLayout targetLayout = vk::ImageLayout::eUndefined,
 		  const vk::MemoryPropertyFlags& memProps = ImageMemoryUsage::Auto, DeviceMemoryManager::AllocationStrategy as = DeviceMemoryManager::AllocationStrategy::Heuristic);
 
 	vk::Image operator*() { return *image; }
 
-	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data) override;
-	std::vector<char> read() override;
+	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data, vk::ImageLayout targetLayout = vk::ImageLayout::eUndefined);
+	std::vector<char> read();
 
 	vk::SharedFence copyFrom(vk::Image srcImage, vk::ImageCopy imgCp, vk::ImageLayout layout = {});
 	vk::SharedFence copyFrom(Image& srcImage, vk::ImageCopy imgCp, vk::ImageLayout layout = {});

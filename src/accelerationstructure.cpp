@@ -110,7 +110,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
 			.setGeometry(vk::AccelerationStructureGeometryTrianglesDataKHR{}
 						 .setVertexData(device->getBufferAddress(**mesh.vertices))
-						 .setVertexStride(sizeof(glm::vec3))
+						 .setVertexStride(sizeof(Vertex))
 						 .setVertexFormat(vk::Format::eR32G32B32Sfloat)
 						 .setMaxVertex(mesh.nVertices - 1u)
 						 .setIndexType(vk::IndexType::eUint32)
@@ -174,7 +174,7 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, 
 								   .setInstanceCustomIndex(meshIdx)
 								   .setMask(0xFF)
 								   .setInstanceShaderBindingTableRecordOffset(0u)
-								   .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable)
+								   .setFlags(scene.materials[scene.meshPool[meshIdx].materialIdx].doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagsKHR{})
 								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[meshIdx])));
 			idx++;
 		}
