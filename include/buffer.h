@@ -24,7 +24,7 @@ public:
 
 	vk::Buffer operator*() { return *buffer; }
 
-	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data);
+	std::optional<vk::SharedFence> write(vk::ArrayProxyNoTemporaries<char> data, vk::DeviceSize offset = 0Ui64);
 	std::vector<char> read();
 
 	vk::SharedFence copyFrom(vk::Buffer srcBuffer, vk::BufferCopy bfrCp);

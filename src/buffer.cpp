@@ -18,23 +18,27 @@ Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHa
 }
 
 // If fence is returned the resource copy handler command buffer needs to be manually submitted
-std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> data) {
+std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> data, vk::DeviceSize offset) {
+	assert(offset + data.size() <= memBlock->size);
 	if (memBlock->mapping) {
 		// Map memory
-		assert(data.size() <= memBlock->size);
-		memcpy(memBlock->mapping, data.data(), data.size());
+		memcpy(memBlock->mapping + offset, data.data(), data.size());
 		if (!(memBlock->allocation.memProps & vk::MemoryPropertyFlagBits::eHostCoherent))
 			device->flushMappedMemoryRanges(vk::MappedMemoryRange{}
 											.setMemory(*memBlock->allocation.memory)
-											.setOffset(memBlock->offset)
+											.setOffset(memBlock->offset + offset)
 											.setSize(data.size()));
 		return std::nullopt;
 	} else {
 		// Create and read from staging buffer
 		auto stagedBufferCI = bufferCI;
 		stagedBufferCI.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
-		auto staged = Buffer(device, dmm, rch, stagedBufferCI, data, MemoryStorage::HostStaging);
-		auto bfrCp = vk::BufferCopy{}.setSize(data.size());
+		auto staged = Buffer(device, dmm, rch, stagedBufferCI, nullptr, MemoryStorage::HostStaging);
+		staged.write(data, offset);
+		auto bfrCp = vk::BufferCopy{}
+			.setSize(data.size())
+			.setSrcOffset(offset)
+			.setDstOffset(offset);
 		copyFrom(staged, bfrCp);
 		writeFinishedFence = rch.submit(); // We must submit immediately so that work is sent before staged buffer is destroyed
 		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy from staging buffer has finished

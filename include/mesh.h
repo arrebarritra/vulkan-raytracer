@@ -7,7 +7,7 @@
 namespace vkrt {
 
 struct Vertex {
-	glm::vec3 pos, normal, tangent, bitangent;
+	glm::vec3 position, normal, tangent, bitangent;
 	glm::vec2 uv0, uv1;
 };
 
@@ -25,7 +25,6 @@ class Mesh {
 public:
 	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ArrayProxyNoTemporaries<Vertex> vertices, vk::ArrayProxyNoTemporaries<Index> indices, uint32_t materialIdx = -1u);
 
-	bool transparent;
 	uint32_t nVertices, nIndices, materialIdx;
 	std::unique_ptr<Buffer> vertices, indices;
 

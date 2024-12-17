@@ -42,7 +42,7 @@ private:
 	vk::DescriptorSet descriptorSet;
 	std::vector<vk::WriteDescriptorSet> descriptorWrites;
 
-	std::unique_ptr<Shader> raygen, miss, hit;
+	std::vector<std::unique_ptr<Shader>> raygenShaders, missShaders, hitShaders;
 
 	std::array<vk::SharedSemaphore, FRAMES_IN_FLIGHT> raytraceFinishedSemaphore;
 

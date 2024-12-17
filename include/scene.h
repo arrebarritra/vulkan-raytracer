@@ -10,6 +10,7 @@
 #include <mesh.h>
 #include <material.h>
 #include <texture.h>
+#include <light.h>
 
 namespace vkrt {
 
@@ -39,12 +40,17 @@ public:
 	SceneObject root;
 	uint32_t maxDepth;
 	uint32_t objectCount;
+
+	// Resources
 	std::vector<Mesh> meshPool;
 	std::vector<Material> materials;
 	std::vector<std::unique_ptr<Texture>> texturePool;
-	std::unordered_map<std::filesystem::path, uint32_t> texturesUsed;
+	std::unordered_map<std::filesystem::path, uint32_t> texturesNameToIndex;
+	std::vector<PointLight> pointLights;
+	std::vector<DirectionalLight> directionalLights;
+	std::unordered_map<std::string, std::tuple<LightTypes, uint32_t>> lightNameToIndex;
 
-	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer;
+	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer, pointLightsBuffer, directionalLightsBuffer;
 
 	SceneObject& addObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices);
 	void loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem::path path);
@@ -110,7 +116,7 @@ public:
 	iterator end() { return iterator(nullptr, 0); };
 
 private:
-	void processModelRecursive(SceneObject* parent, const aiScene* scene, const aiNode* node, uint32_t baseMeshOffset);
+	void processModelRecursive(SceneObject* parent, const aiScene* scene, const aiNode* node, const glm::mat4 parentTransform, uint32_t baseMeshOffset);
 
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;

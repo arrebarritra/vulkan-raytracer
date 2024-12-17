@@ -106,7 +106,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 	for (auto& mesh : scene.meshPool) {
 		accelerationStructureGeometries.push_back(
 			vk::AccelerationStructureGeometryKHR{}
-			.setFlags(mesh.transparent ? vk::GeometryFlagsKHR{} : vk::GeometryFlagBitsKHR::eOpaque)
+			.setFlags(scene.materials[mesh.materialIdx].doubleSided ? vk::GeometryFlagsKHR{} : vk::GeometryFlagBitsKHR::eOpaque)
 			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
 			.setGeometry(vk::AccelerationStructureGeometryTrianglesDataKHR{}
 						 .setVertexData(device->getBufferAddress(**mesh.vertices))
@@ -188,7 +188,6 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, 
 
 	auto accelerationStructureGeometry = vk::AccelerationStructureGeometryKHR{}
 		.setGeometryType(vk::GeometryTypeKHR::eInstances)
-		.setFlags(vk::GeometryFlagBitsKHR::eOpaque)
 		.setGeometry(vk::AccelerationStructureGeometryInstancesDataKHR{}
 					 .setArrayOfPointers(vk::False)
 					 .setData(device->getBufferAddress(**instancesBuffer)));
