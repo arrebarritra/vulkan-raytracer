@@ -67,7 +67,7 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 	createDevice(separateTransferQueue, separateComputeQueue);
 
 	dmm = std::make_unique<DeviceMemoryManager>(device, physicalDevice);
-	rch = std::make_unique<ResourceCopyHandler>(device, transferQueue ? *transferQueue : graphicsQueue);
+	rth = std::make_unique<ResourceTransferHandler>(device, transferQueue ? *transferQueue : graphicsQueue);
 
 	determineSwapchainSettings(preferredFormats, preferredPresModes);
 	createSwapchain();

@@ -35,7 +35,7 @@ private:
 class Scene {
 
 public:
-	Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch);
+	Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth);
 
 	SceneObject root;
 	uint32_t maxDepth;
@@ -120,7 +120,7 @@ private:
 
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;
-	ResourceCopyHandler& rch;
+	ResourceTransferHandler& rth;
 };
 
 }

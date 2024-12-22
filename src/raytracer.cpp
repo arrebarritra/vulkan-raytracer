@@ -31,7 +31,7 @@ Raytracer::Raytracer()
 				  true, false, false, FRAMES_IN_FLIGHT,
 				  vk::ImageUsageFlagBits::eTransferDst, { vk::Format::eB8G8R8A8Srgb },
 				  { vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo })
-	, scene(device, *dmm, *rch)
+	, scene(device, *dmm, *rth)
 {
 	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 	//if (glfwRawMouseMotionSupported())
@@ -47,11 +47,13 @@ Raytracer::Raytracer()
 	raytraceCmdBuffers = device->allocateCommandBuffersUnique(cmdBufferAI);
 
 	// Create acceleration structure
-	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"NewSponza_Main_glTF_003.gltf");
+	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"cornell.gltf");
+	rth->flushPendingTransfers();
 
 	//CHECK_VULKAN_RESULT(device->waitForFences({ *scene.meshPool.back().vertices->writeFinishedFence, *scene.meshPool.back().indices->writeFinishedFence },
 	//										  vk::True, std::numeric_limits<uint64_t>::max()));
-	as = std::make_unique<AccelerationStructure>(device, *dmm, *rch, scene, graphicsQueue);
+	as = std::make_unique<AccelerationStructure>(device, *dmm, *rth, scene, graphicsQueue);
+	rth->flushPendingTransfers();
 
 	// Create storage image and view
 	auto storageImageCI = vk::ImageCreateInfo{}
@@ -64,7 +66,7 @@ Raytracer::Raytracer()
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setUsage(vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc)
 		.setInitialLayout(vk::ImageLayout::eUndefined);
-	storageImage = std::make_unique<Image>(device, *dmm, *rch, storageImageCI, nullptr, vk::ImageLayout::eUndefined, MemoryStorage::DevicePersistent);
+	storageImage = std::make_unique<Image>(device, *dmm, *rth, storageImageCI, nullptr, vk::ImageLayout::eUndefined, MemoryStorage::DevicePersistent);
 
 	auto storageImViewCI = vk::ImageViewCreateInfo{}
 		.setViewType(vk::ImageViewType::e2D)
@@ -82,13 +84,14 @@ Raytracer::Raytracer()
 	auto bufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(matrices))
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
-	uniformBuffer = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ sizeof(matrices), (char*)matrices.data() }, MemoryStorage::DeviceDynamic);
+	uniformBuffer = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ sizeof(matrices), (char*)matrices.data() }, MemoryStorage::DeviceDynamic);
 
 	// Create resources
 	createRaytracingPipeline();
 	createShaderBindingTable();
 	createDescriptorSets();
 	updateDescriptorSets();
+	rth->flushPendingTransfers();
 }
 
 void Raytracer::createCommandPools() {
@@ -177,11 +180,11 @@ void Raytracer::createRaytracingPipeline() {
 	std::transform(hitShaders.begin(), hitShaders.end(), std::back_inserter(shaderStages), [](const std::unique_ptr<Shader>& s) { return s->shaderStageInfo; });
 
 	// Create shader groups
-	std::transform(raygenShaders.begin(), raygenShaders.end(), std::back_inserter(shaderGroups), 
+	std::transform(raygenShaders.begin(), raygenShaders.end(), std::back_inserter(shaderGroups),
 				   [&](const std::unique_ptr<Shader>& s) { return vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eGeneral).setGeneralShader(shaderGroups.size()); });
-	std::transform(missShaders.begin(), missShaders.end(), std::back_inserter(shaderGroups), 
+	std::transform(missShaders.begin(), missShaders.end(), std::back_inserter(shaderGroups),
 				   [&](const std::unique_ptr<Shader>& s) { return vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eGeneral).setGeneralShader(shaderGroups.size()); });
-	std::transform(hitShaders.begin(), hitShaders.end(), std::back_inserter(shaderGroups), 
+	std::transform(hitShaders.begin(), hitShaders.end(), std::back_inserter(shaderGroups),
 				   [&](const std::unique_ptr<Shader>& s) { return vk::RayTracingShaderGroupCreateInfoKHR{}.setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup).setClosestHitShader(shaderGroups.size()); });
 
 	auto raytracingPipelineCI = vk::RayTracingPipelineCreateInfoKHR{}
@@ -200,9 +203,9 @@ void Raytracer::createShaderBindingTable() {
 	auto bufferCI = vk::BufferCreateInfo{}
 		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
 		.setSize(handleSize);
-	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(raygenShaders.size() * handleSize),  shaderGroupHandles.data() }, MemoryStorage::DeviceDynamic);
-	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(missShaders.size() * handleSize), shaderGroupHandles.data() + raygenShaders.size() * handleSize }, MemoryStorage::DeviceDynamic);
-	hitShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rch, bufferCI,
+	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(raygenShaders.size() * handleSize),  shaderGroupHandles.data() }, MemoryStorage::DeviceDynamic);
+	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(missShaders.size() * handleSize), shaderGroupHandles.data() + raygenShaders.size() * handleSize }, MemoryStorage::DeviceDynamic);
+	hitShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI,
 													 vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(hitShaders.size() * handleSize), shaderGroupHandles.data() + (raygenShaders.size() + missShaders.size()) * handleSize },
 													 MemoryStorage::DeviceDynamic);
 }
@@ -380,9 +383,9 @@ void Raytracer::drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSe
 						   .setMipLevel(0u))
 		.setExtent(vk::Extent3D{ width, height, 1u });
 
-	storageImage->copyTo(swapchainImages[frameIdx], imgCp, vk::ImageLayout::ePresentSrcKHR);
-	std::array waitSemaphores = { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] };
-	rch->submit(waitSemaphores, renderFinishedSemaphore, frameFinishedFence);
+	SyncInfo storageToSwapchainCI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
+	storageImage->copyTo(swapchainImages[frameIdx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainCI));
+
 }
 
 }

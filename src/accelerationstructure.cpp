@@ -3,10 +3,10 @@
 
 namespace vkrt {
 
-AccelerationStructure::AccelerationStructure(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, Scene& scene, std::tuple<uint32_t, vk::Queue> computeQueue)
+AccelerationStructure::AccelerationStructure(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, Scene& scene, std::tuple<uint32_t, vk::Queue> computeQueue)
 	: device(device)
 	, dmm(dmm)
-	, rch(rch)
+	, rth(rth)
 	, scene(scene)
 	, computeQueue(computeQueue)
 	, commandPool(device->createCommandPoolUnique(vk::CommandPoolCreateInfo{}
@@ -56,8 +56,9 @@ vk::SharedFence AccelerationStructure::build(vk::BuildAccelerationStructureModeK
 	asBuildCmdBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR, vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
 									  {}, memBarrier, blasMemBarriers, {});
 
-	std::unique_ptr<Buffer> instancesBuffer, tlasScratchBuffer;
-	buildTLAS(instancesBuffer, tlasScratchBuffer, mode);
+	std::vector<std::unique_ptr<Buffer>> instanceBuffers;
+	std::unique_ptr<Buffer> tlasScratchBuffer;
+	buildTLAS(instanceBuffers, tlasScratchBuffer, mode);
 	asBuildCmdBuffer->end();
 
 	// Submit build commands
@@ -97,7 +98,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 	auto transformBufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(vk::TransformMatrixKHR))
 		.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
-	transformBuffer = std::make_unique<Buffer>(device, dmm, rch, transformBufferCI,
+	transformBuffer = std::make_unique<Buffer>(device, dmm, rth, transformBufferCI,
 											   vk::ArrayProxyNoTemporaries{ sizeof(transformMatrix), (char*)&transformMatrix }, MemoryStorage::DevicePersistent);
 
 	blasBuffers.clear();
@@ -125,7 +126,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 		auto blasBufferCI = vk::BufferCreateInfo{}
 			.setSize(accelerationStructureBSI.accelerationStructureSize)
 			.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
-		blasBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rch, blasBufferCI,
+		blasBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, blasBufferCI,
 														  nullptr, MemoryStorage::DevicePersistent));
 
 		// With known build size we can now actually create BLAS
@@ -135,7 +136,7 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 			.setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
 		blas.push_back(device->createAccelerationStructureKHRUnique(accelerationStructureCI));
 
-		scratchBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rch, vk::BufferCreateInfo{}
+		scratchBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, vk::BufferCreateInfo{}
 															 .setSize(mode == vk::BuildAccelerationStructureModeKHR::eBuild ? accelerationStructureBSI.buildScratchSize : accelerationStructureBSI.updateScratchSize)
 															 .setUsage(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress),
 															 nullptr, MemoryStorage::DevicePersistent));
@@ -158,9 +159,10 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 	asBuildCmdBuffer->buildAccelerationStructuresKHR(accelerationStructureBGIs, accelerationStructureBRIPointers);
 }
 
-void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, std::unique_ptr<Buffer>& scratchBuffer, vk::BuildAccelerationStructureModeKHR mode) {
-	std::vector<vk::AccelerationStructureInstanceKHR> instanceData;
-	instanceData.reserve(scene.objectCount);
+void AccelerationStructure::buildTLAS(std::vector<std::unique_ptr<Buffer>>& instanceBuffers, std::unique_ptr<Buffer>& scratchBuffer, vk::BuildAccelerationStructureModeKHR mode) {
+	std::vector<vk::AccelerationStructureInstanceKHR> instanceDataOpaque, instanceDataTransparent;
+	instanceDataOpaque.reserve(scene.objectCount);
+	instanceDataTransparent.reserve(scene.objectCount);
 
 	uint32_t idx = 0;
 	for (auto& it = scene.begin(); it != scene.end(); it++) {
@@ -169,36 +171,55 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, 
 			std::array<std::array<float, 4Ui64>, 3Ui64> transformMatrix;
 			auto affineTransform = glm::mat3x4(glm::transpose(it.transform));
 			memcpy(transformMatrix.data(), &affineTransform, sizeof(transformMatrix));
+
+			auto& instanceData = scene.materials[scene.meshPool[meshIdx].materialIdx].baseColourFactor.a == 1.0f ? instanceDataOpaque : instanceDataTransparent;
 			instanceData.push_back(vk::AccelerationStructureInstanceKHR{}
 								   .setTransform(vk::TransformMatrixKHR{}.setMatrix(transformMatrix))
 								   .setInstanceCustomIndex(meshIdx)
 								   .setMask(0xFF)
 								   .setInstanceShaderBindingTableRecordOffset(0u)
-								   .setFlags(scene.materials[scene.meshPool[meshIdx].materialIdx].doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagsKHR{})
+								   .setFlags(scene.materials[scene.meshPool[meshIdx].materialIdx].doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagBitsKHR::eTriangleFrontCounterclockwise)
 								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[meshIdx])));
 			idx++;
 		}
 	}
-	auto instancesBufferCI = vk::BufferCreateInfo{}
-		.setSize(sizeof(vk::AccelerationStructureInstanceKHR) * instanceData.size())
-		.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
-	instancesBuffer = std::make_unique<Buffer>(device, dmm, rch, instancesBufferCI,
-											   vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(sizeof(vk::AccelerationStructureInstanceKHR) * instanceData.size()), (char*)instanceData.data() },
-											   MemoryStorage::DeviceDynamic);
 
-	auto accelerationStructureGeometry = vk::AccelerationStructureGeometryKHR{}
+	auto instanceBuffersOpaqueCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(vk::AccelerationStructureInstanceKHR) * instanceDataOpaque.size())
+		.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
+	auto instanceBuffersTransparentCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(vk::AccelerationStructureInstanceKHR) * instanceDataTransparent.size())
+		.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
+	instanceBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, instanceBuffersOpaqueCI,
+														  vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(sizeof(vk::AccelerationStructureInstanceKHR) * instanceDataOpaque.size()), (char*)instanceDataOpaque.data() },
+														  MemoryStorage::DeviceDynamic));
+	instanceBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, instanceBuffersTransparentCI,
+														  vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(sizeof(vk::AccelerationStructureInstanceKHR) * instanceDataTransparent.size()), (char*)instanceDataTransparent.data() },
+														  MemoryStorage::DeviceDynamic));
+
+	std::array accelerationStructureGeometries = {
+		vk::AccelerationStructureGeometryKHR{}
+		.setGeometryType(vk::GeometryTypeKHR::eInstances)
+		.setFlags(vk::GeometryFlagBitsKHR::eOpaque)
+		.setGeometry(vk::AccelerationStructureGeometryInstancesDataKHR{}
+					 .setArrayOfPointers(vk::False)
+					 .setData(device->getBufferAddress(**instanceBuffers[0]))),
+		vk::AccelerationStructureGeometryKHR{}
 		.setGeometryType(vk::GeometryTypeKHR::eInstances)
 		.setGeometry(vk::AccelerationStructureGeometryInstancesDataKHR{}
 					 .setArrayOfPointers(vk::False)
-					 .setData(device->getBufferAddress(**instancesBuffer)));
+					 .setData(device->getBufferAddress(**instanceBuffers[1])))
+	};
 	auto accelerationStructureBGI = vk::AccelerationStructureBuildGeometryInfoKHR{}
 		.setType(vk::AccelerationStructureTypeKHR::eTopLevel)
 		.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-		.setGeometries(accelerationStructureGeometry);
-	auto accelerationStructureBSI = device->getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, accelerationStructureBGI, instanceData.size());
+		.setGeometries(accelerationStructureGeometries);
+	auto accelerationStructureBSI = device->getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, accelerationStructureBGI,
+																				  { static_cast<uint32_t>(instanceDataOpaque.size()), static_cast<uint32_t>(instanceDataTransparent.size()) });
 
 	if (mode == vk::BuildAccelerationStructureModeKHR::eBuild) {
-		tlasBuffer = std::make_unique<Buffer>(device, dmm, rch, vk::BufferCreateInfo{}
+		tlasBuffer = std::make_unique<Buffer>(device, dmm, rth, vk::BufferCreateInfo{}
 											  .setSize(accelerationStructureBSI.accelerationStructureSize)
 											  .setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress),
 											  nullptr, MemoryStorage::DevicePersistent);
@@ -212,7 +233,7 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, 
 	auto scratchBufferCI = vk::BufferCreateInfo{}
 		.setSize(mode == vk::BuildAccelerationStructureModeKHR::eBuild ? accelerationStructureBSI.buildScratchSize : accelerationStructureBSI.updateScratchSize)
 		.setUsage(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress);
-	scratchBuffer = std::make_unique<Buffer>(device, dmm, rch, scratchBufferCI,
+	scratchBuffer = std::make_unique<Buffer>(device, dmm, rth, scratchBufferCI,
 											 nullptr, MemoryStorage::DeviceDynamic);
 
 	accelerationStructureBGI
@@ -220,13 +241,19 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, 
 		.setSrcAccelerationStructure(mode == vk::BuildAccelerationStructureModeKHR::eUpdate ? *tlas : nullptr)
 		.setDstAccelerationStructure(*tlas)
 		.setScratchData(device->getBufferAddress(**scratchBuffer));
-	auto accelerationStructureBRI = vk::AccelerationStructureBuildRangeInfoKHR{}
-		.setPrimitiveCount(instanceData.size())
+	auto accelerationStructureBRIOpaque = vk::AccelerationStructureBuildRangeInfoKHR{}
+		.setPrimitiveCount(instanceDataOpaque.size())
 		.setPrimitiveOffset(0u)
 		.setFirstVertex(0u)
 		.setTransformOffset(0u);
+	auto accelerationStructureBRITransparent = vk::AccelerationStructureBuildRangeInfoKHR{}
+		.setPrimitiveCount(instanceDataTransparent.size())
+		.setPrimitiveOffset(0u)
+		.setFirstVertex(0u)
+		.setTransformOffset(0u);
+	std::array accelerationStructureBRIs = { accelerationStructureBRIOpaque, accelerationStructureBRITransparent };
 
-	asBuildCmdBuffer->buildAccelerationStructuresKHR(accelerationStructureBGI, &accelerationStructureBRI);
+	asBuildCmdBuffer->buildAccelerationStructuresKHR(accelerationStructureBGI, accelerationStructureBRIs.data());
 }
 
 }

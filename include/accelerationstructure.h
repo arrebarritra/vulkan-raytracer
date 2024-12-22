@@ -10,7 +10,7 @@ namespace vkrt {
 class AccelerationStructure {
 
 public:
-	AccelerationStructure(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, Scene& scene, std::tuple<uint32_t, vk::Queue> computeQueue);
+	AccelerationStructure(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, Scene& scene, std::tuple<uint32_t, vk::Queue> computeQueue);
 
 	vk::SharedFence buildFinishedFence;
 
@@ -26,7 +26,7 @@ public:
 private:
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;
-	ResourceCopyHandler& rch;
+	ResourceTransferHandler& rth;
 	Scene& scene;
 
 	std::tuple<uint32_t, vk::Queue> computeQueue;
@@ -35,7 +35,7 @@ private:
 
 	vk::SharedFence build(vk::BuildAccelerationStructureModeKHR mode, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> waitSemaphores = nullptr, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> signalSemaphores = nullptr);
 	void buildBLAS(std::vector<std::unique_ptr<Buffer>>& scratchBuffers, vk::BuildAccelerationStructureModeKHR mode);
-	void buildTLAS(std::unique_ptr<Buffer>& instancesBuffer, std::unique_ptr<Buffer>& scratchBuffer, vk::BuildAccelerationStructureModeKHR mode);
+	void buildTLAS(std::vector<std::unique_ptr<Buffer>>& instanceBuffers, std::unique_ptr<Buffer>& scratchBuffer, vk::BuildAccelerationStructureModeKHR mode);
 };
 
 }

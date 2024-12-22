@@ -12,8 +12,8 @@ namespace vkrt {
 SceneObject::SceneObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices)
 	: transform(transform), parent(parent), meshIndices(meshIndices), depth(parent ? parent->depth + 1u : 0u) {}
 
-Scene::Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch)
-	: device(device), dmm(dmm), rch(rch), root(nullptr, glm::mat4(1.0f), {}), objectCount(0u), maxDepth(1u) {}
+Scene::Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth)
+	: device(device), dmm(dmm), rth(rth), root(nullptr, glm::mat4(1.0f), {}), objectCount(0u), maxDepth(1u) {}
 
 SceneObject& Scene::addObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices) {
 	objectCount++;
@@ -59,13 +59,13 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 			indices.push_back(face.mIndices[1]);
 			indices.push_back(face.mIndices[2]);
 		}
-		meshPool.emplace_back(device, dmm, rch, vertices, indices, baseMaterialOffset + aiMesh->mMaterialIndex);
+		meshPool.emplace_back(device, dmm, rth, vertices, indices, baseMaterialOffset + aiMesh->mMaterialIndex);
 		meshInfos.emplace_back(device->getBufferAddress(**meshPool.back().vertices), device->getBufferAddress(**meshPool.back().indices), meshPool.back().materialIdx);
 	}
 	auto geometryInfoBufferCI = vk::BufferCreateInfo{}
 		.setSize(meshInfos.size() * sizeof(MeshInfo))
 		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	geometryInfoBuffer = std::make_unique<Buffer>(device, dmm, rch, geometryInfoBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(geometryInfoBufferCI.size), (char*)meshInfos.data() }, MemoryStorage::DevicePersistent);
+	geometryInfoBuffer = std::make_unique<Buffer>(device, dmm, rth, geometryInfoBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(geometryInfoBufferCI.size), (char*)meshInfos.data() }, MemoryStorage::DevicePersistent);
 
 	// Load materials and associated textures
 	for (int i = 0; i < aiScene->mNumMaterials; i++) {
@@ -74,7 +74,8 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 		Material material;
 
 		// Get property values
-		aiMaterial->Get(AI_MATKEY_BASE_COLOR, material.baseColourFactor);
+		aiMaterial->Get(AI_MATKEY_GLTF_PBRMETALLICROUGHNESS_BASE_COLOR_FACTOR, material.baseColourFactor);
+		aiMaterial->Get(AI_MATKEY_OPACITY, material.baseColourFactor.a);
 		aiMaterial->Get(AI_MATKEY_ROUGHNESS_FACTOR, material.roughnessFactor);
 		aiMaterial->Get(AI_MATKEY_METALLIC_FACTOR, material.metallicFactor);
 		aiMaterial->Get(AI_MATKEY_TWOSIDED, material.doubleSided);
@@ -89,7 +90,7 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 			if (aiMaterial->GetTexture(textureType, 0, &texFile) == AI_SUCCESS) {
 				auto [it, success] = texturesNameToIndex.try_emplace(texFile.C_Str(), texturesNameToIndex.size());
 				if (success)
-					texturePool.emplace_back(std::make_unique<Texture>(device, dmm, rch, path.parent_path() / std::filesystem::path(texFile.C_Str())));
+					texturePool.emplace_back(std::make_unique<Texture>(device, dmm, rth, path.parent_path() / std::filesystem::path(texFile.C_Str())));
 				*textureIdxRef = std::get<uint32_t>(*it);
 			}
 		}
@@ -98,7 +99,7 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 	auto materialsBufferCI = vk::BufferCreateInfo{}
 		.setSize(materials.size() * sizeof(Material))
 		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	materialsBuffer = std::make_unique<Buffer>(device, dmm, rch, materialsBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(materialsBufferCI.size), (char*)materials.data() }, MemoryStorage::DevicePersistent);
+	materialsBuffer = std::make_unique<Buffer>(device, dmm, rth, materialsBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(materialsBufferCI.size), (char*)materials.data() }, MemoryStorage::DevicePersistent);
 
 
 	// Load lights
@@ -131,7 +132,7 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 	auto pointLightsBufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(uint32_t) + pointLights.size() * sizeof(PointLight))
 		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	pointLightsBuffer = std::make_unique<Buffer>(device, dmm, rch, pointLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
+	pointLightsBuffer = std::make_unique<Buffer>(device, dmm, rth, pointLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
 
 	uint32_t numPointLights = pointLights.size();
 	pointLightsBuffer->write({ sizeof(uint32_t), (char*)&numPointLights });
@@ -140,7 +141,7 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 	auto directionalLightsBufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(uint32_t) + directionalLights.size() * sizeof(DirectionalLight))
 		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	directionalLightsBuffer = std::make_unique<Buffer>(device, dmm, rch, directionalLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
+	directionalLightsBuffer = std::make_unique<Buffer>(device, dmm, rth, directionalLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
 
 	uint32_t numDirectionalLights = directionalLights.size();
 	directionalLightsBuffer->write({ sizeof(uint32_t), (char*)&numDirectionalLights });

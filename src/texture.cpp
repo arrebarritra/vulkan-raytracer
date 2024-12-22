@@ -2,8 +2,8 @@
 
 namespace vkrt {
 
-Texture::Texture(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, std::filesystem::path imageFile, DeviceMemoryManager::AllocationStrategy as)
-	: image(device, dmm, rch, vk::ImageCreateInfo{}
+Texture::Texture(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, std::filesystem::path imageFile, DeviceMemoryManager::AllocationStrategy as)
+	: image(device, dmm, rth, vk::ImageCreateInfo{}
 			.setImageType(vk::ImageType::e2D)
 			.setSamples(vk::SampleCountFlagBits::e1)
 			.setUsage(vk::ImageUsageFlagBits::eSampled)

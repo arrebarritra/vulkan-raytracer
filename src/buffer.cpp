@@ -2,8 +2,8 @@
 
 namespace vkrt {
 
-Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::BufferCreateInfo bufferCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
-	: ManagedResource(device, dmm, rch, memProps,
+Buffer::Buffer(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, vk::BufferCreateInfo bufferCI, vk::ArrayProxyNoTemporaries<char> data, const vk::MemoryPropertyFlags& memProps, DeviceMemoryManager::AllocationStrategy as)
+	: ManagedResource(device, dmm, rth, memProps,
 					  static_cast<bool>(bufferCI.usage& vk::BufferUsageFlagBits::eTransferSrc),
 					  static_cast<bool>(bufferCI.usage& vk::BufferUsageFlagBits::eTransferDst) || (data.size() != 0 && !(memProps & vk::MemoryPropertyFlagBits::eHostVisible)))
 	, bufferCI(bufferCI
@@ -33,15 +33,16 @@ std::optional<vk::SharedFence> Buffer::write(vk::ArrayProxyNoTemporaries<char> d
 		// Create and read from staging buffer
 		auto stagedBufferCI = bufferCI;
 		stagedBufferCI.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
-		auto staged = Buffer(device, dmm, rch, stagedBufferCI, nullptr, MemoryStorage::HostStaging);
-		staged.write(data, offset);
+		auto staged = std::make_unique<Buffer>(device, dmm, rth, stagedBufferCI, nullptr, MemoryStorage::HostStaging);
+		staged->write(data, offset);
 		auto bfrCp = vk::BufferCopy{}
 			.setSize(data.size())
 			.setSrcOffset(offset)
 			.setDstOffset(offset);
-		copyFrom(staged, bfrCp);
-		writeFinishedFence = rch.submit(); // We must submit immediately so that work is sent before staged buffer is destroyed
-		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy from staging buffer has finished
+
+		auto& stagedBuffer = *staged;
+		SyncInfo si{ vk::SharedFence(device->createFence({}), device), {}, {} };
+		copyFrom(stagedBuffer, bfrCp, si, std::move(staged));
 		return writeFinishedFence;
 	}
 }
@@ -60,73 +61,83 @@ std::vector<char> Buffer::read() {
 		// Create and write to staging buffer
 		auto stagedBufferCI = bufferCI;
 		stagedBufferCI.setUsage(vk::BufferUsageFlagBits::eTransferDst);
-		auto staged = Buffer(device, dmm, rch, stagedBufferCI, nullptr, MemoryStorage::HostDownload);
+		auto staged = std::make_unique<Buffer>(device, dmm, rth, stagedBufferCI, nullptr, MemoryStorage::HostDownload);
 		auto bfrCp = vk::BufferCopy{}.setSrcOffset(0u).setDstOffset(0u).setSize(memBlock->size);
-		copyTo(staged, bfrCp);
-		readFinishedFence = rch.submit();
-		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait until copy to staging buffer has finished
-		return staged.read();
+
+		auto& stagedBuffer = *staged;
+		SyncInfo si{ vk::SharedFence(device->createFence({}), device), {}, {} };
+		copyTo(stagedBuffer, bfrCp, si, std::move(staged));
+		rth.flushPendingTransfers(readFinishedFence);
+		return staged->read();
 	}
 }
 
-vk::SharedFence Buffer::copyFrom(vk::Buffer srcBuffer, vk::BufferCopy bfrCp) {
+void Buffer::copyFrom(vk::Buffer srcBuffer, vk::BufferCopy bfrCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferSrc)
 		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before reads from current image have finished before writing
-	writeFinishedFence = rch.recordCopyCmd(srcBuffer, *buffer, bfrCp);
-	return writeFinishedFence;
+
+	rth.copy(srcBuffer, *buffer, bfrCp, si, std::move(stagedResource));
+	writeFinishedFence = si.fence;
 }
 
-vk::SharedFence Buffer::copyFrom(Buffer& srcBuffer, vk::BufferCopy bfrCp) {
+void Buffer::copyFrom(Buffer& srcBuffer, vk::BufferCopy bfrCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferSrc)
 		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max()));
-	writeFinishedFence = rch.recordCopyCmd(*srcBuffer.buffer, *buffer, bfrCp);
+
+	rth.copy(*srcBuffer, *buffer, bfrCp, si, std::move(stagedResource));
+	writeFinishedFence = si.fence;
 	srcBuffer.readFinishedFence = writeFinishedFence;
-	return writeFinishedFence;
 }
 
-vk::SharedFence Buffer::copyFrom(vk::Image srcImage, vk::BufferImageCopy bfrImgCp) {
+void Buffer::copyFrom(vk::Image srcImage, vk::BufferImageCopy bfrImgCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferSrc)
 		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max()));
-	writeFinishedFence = rch.recordCopyCmd(srcImage, *buffer, bfrImgCp);
-	return writeFinishedFence;
+
+	rth.copy(srcImage, *buffer, bfrImgCp, si, std::move(stagedResource));
+	writeFinishedFence = si.fence;
 }
 
-vk::SharedFence Buffer::copyFrom(Image& srcImage, vk::BufferImageCopy bfrImgCp) {
+void Buffer::copyFrom(Image& srcImage, vk::BufferImageCopy bfrImgCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferSrc)
 		CHECK_VULKAN_RESULT(device->waitForFences(*readFinishedFence, vk::True, std::numeric_limits<uint64_t>::max()));
-	writeFinishedFence = rch.recordCopyCmd(*srcImage.image, *buffer, bfrImgCp);
+
+	rth.copy(*srcImage, *buffer, bfrImgCp, si, std::move(stagedResource));
+	writeFinishedFence = si.fence;
 	srcImage.readFinishedFence = writeFinishedFence;
-	return writeFinishedFence;
 }
 
-vk::SharedFence Buffer::copyTo(vk::Buffer dstBuffer, vk::BufferCopy bfrCp) {
+void Buffer::copyTo(vk::Buffer dstBuffer, vk::BufferCopy bfrCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferDst)
 		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max())); // wait before writes to current image have finished before reading
-	readFinishedFence = rch.recordCopyCmd(*buffer, dstBuffer, bfrCp);
-	return readFinishedFence;
+
+	rth.copy(*buffer, dstBuffer, bfrCp, si, std::move(stagedResource));
+	readFinishedFence = si.fence;
 }
 
-vk::SharedFence Buffer::copyTo(Buffer& dstBuffer, vk::BufferCopy bfrCp) {
+void Buffer::copyTo(Buffer& dstBuffer, vk::BufferCopy bfrCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferDst)
 		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max()));
-	readFinishedFence = rch.recordCopyCmd(*buffer, *dstBuffer.buffer, bfrCp);
+
+	rth.copy(*buffer, *dstBuffer.buffer, bfrCp, si, std::move(stagedResource));
+	readFinishedFence = si.fence;
 	dstBuffer.writeFinishedFence = readFinishedFence;
-	return readFinishedFence;
 }
 
-vk::SharedFence Buffer::copyTo(vk::Image dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout) {
+void Buffer::copyTo(vk::Image dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferDst)
 		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max()));
-	readFinishedFence = rch.recordCopyCmd(*buffer, dstImage, bfrImgCp, dstLayout);
-	return readFinishedFence;
+
+	rth.copy(*buffer, dstImage, bfrImgCp, dstLayout, si, std::move(stagedResource));
+	readFinishedFence = si.fence;
 }
 
-vk::SharedFence Buffer::copyTo(Image& dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout) {
+void Buffer::copyTo(Image& dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource) {
 	if (bufferCI.usage & vk::BufferUsageFlagBits::eTransferDst)
 		CHECK_VULKAN_RESULT(device->waitForFences(*writeFinishedFence, vk::True, std::numeric_limits<uint64_t>::max()));
-	readFinishedFence = rch.recordCopyCmd(*buffer, *dstImage.image, bfrImgCp, dstLayout);
+
+	rth.copy(*buffer, *dstImage.image, bfrImgCp, dstLayout, si, std::move(stagedResource));
+	readFinishedFence = si.fence;
 	dstImage.writeFinishedFence = readFinishedFence;
-	return readFinishedFence;
 }
 
 

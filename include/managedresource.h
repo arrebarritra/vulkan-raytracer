@@ -4,28 +4,29 @@
 
 #include <logging.h>
 #include <devicememorymanager.h>
-#include <resourcecopyhandler.h>
+#include <resourcetransferhandler.h>
 
 #include <optional>
 
 namespace vkrt {
 
+class ResourceTransferHandler;
 class ManagedResource {
 
 public:
 	// query status of issued read/write
 	vk::SharedFence readFinishedFence, writeFinishedFence;
+	virtual ~ManagedResource();
 
 protected:
-	ManagedResource(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::MemoryPropertyFlags memProps, bool tranferRead = false, bool transferWrite = false);
+	ManagedResource(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, vk::MemoryPropertyFlags memProps, bool tranferRead = false, bool transferWrite = false);
 	// Disable copy (we don't want to inadvertently destroy allocated memory blocks)
 	ManagedResource(const ManagedResource&) = delete;
-	~ManagedResource();
 	ManagedResource operator=(const ManagedResource&) = delete;
 
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;
-	ResourceCopyHandler& rch;
+	ResourceTransferHandler& rth;
 
 	std::unique_ptr<DeviceMemoryManager::MemoryBlock> memBlock;
 	vk::MemoryPropertyFlags memProps;

@@ -9,7 +9,7 @@
 #include <devicememorymanager.h>
 #include <buffer.h>
 #include <image.h>
-#include <resourcecopyhandler.h>
+#include <resourcetransferhandler.h>
 #include <camera.h>
 
 
@@ -52,7 +52,7 @@ protected:
 
 	// Memory and resource management
 	std::unique_ptr<DeviceMemoryManager> dmm;
-	std::unique_ptr<ResourceCopyHandler> rch;
+	std::unique_ptr<ResourceTransferHandler> rth;
 
 	// Swapchains
 	uint32_t framesInFlight;

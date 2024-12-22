@@ -23,7 +23,7 @@ struct MeshInfo {
 
 class Mesh {
 public:
-	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceCopyHandler& rch, vk::ArrayProxyNoTemporaries<Vertex> vertices, vk::ArrayProxyNoTemporaries<Index> indices, uint32_t materialIdx = -1u);
+	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, vk::ArrayProxyNoTemporaries<Vertex> vertices, vk::ArrayProxyNoTemporaries<Index> indices, uint32_t materialIdx = -1u);
 
 	uint32_t nVertices, nIndices, materialIdx;
 	std::unique_ptr<Buffer> vertices, indices;
