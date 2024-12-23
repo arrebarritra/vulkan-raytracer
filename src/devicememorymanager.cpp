@@ -56,34 +56,37 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::allocateR
 	switch (as) {
 		case AllocationStrategy::Fast:
 		case AllocationStrategy::Balanced:
-			try {
-				return allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs, as);
-			} catch (Allocation::SubAllocationFailedError& e) {}
+		{
+			auto& mb = allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs, as);
+			if (mb) return std::move(mb);
 			break;
+		}
 		case AllocationStrategy::Optimal:
+		{
 			for (auto& allocation : allocations[memTypeIdx]) {
-				try {
-					if (allocation->size - allocation->bytesUsed > memReqs.size)
-						return allocation->allocateMemoryBlock(memReqs, as);
-				} catch (Allocation::SubAllocationFailedError& e) {}
+				auto& mb = allocation->allocateMemoryBlock(memReqs, as);
+				if (mb) return std::move(mb);
 			}
 			break;
+		}
 		case AllocationStrategy::Heuristic:
+		{
+			// Try fast strategy
+			auto& mb = allocations[memTypeIdx].back()->allocateMemoryBlock(memReqs, AllocationStrategy::Fast);
+			if (mb) return std::move(mb);
+
+			// If fast strategy does not work, choose allocation with best heuristic
 			std::priority_queue<Allocation*, std::priority_queue<Allocation*>::container_type, allocHeuristicCmp> allocPrio;
 			for (auto& allocation : allocations[memTypeIdx]) {
-				// Try fast strategy
-				try {
-					return allocation->allocateMemoryBlock(memReqs, AllocationStrategy::Fast);
-				} catch (Allocation::SubAllocationFailedError& e) {};
+				if (allocation == allocations[memTypeIdx].back()) continue;
 				allocPrio.push(allocation.get());
 			}
-			// If fast strategy does not work, choose allocation with best heuristic
 			for (; !allocPrio.empty(); allocPrio.pop()) {
-				try {
-					return allocPrio.top()->allocateMemoryBlock(memReqs, as);
-				} catch (Allocation::SubAllocationFailedError& e) {}
+				auto& mb = allocPrio.top()->allocateMemoryBlock(memReqs, as);
+				if (mb) return std::move(mb);
 			}
 			break;
+		}
 	}
 
 	// If we cannot suballocate, create new allocation
@@ -163,7 +166,7 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocatio
 			// Fit allocation to required alignment
 			blockOffset = utils::alignedOffset(offset, memReqs.alignment);
 			blockPadding = utils::paddingSize(memReqs.size, memReqs.alignment);
-			if (blockOffset + memReqs.size + blockPadding > size) { throw SubAllocationFailedError(); }
+			if (blockOffset + memReqs.size + blockPadding > size) { return nullptr; }
 			neighbours = std::make_tuple(tail, nullptr);
 			break;
 		case AllocationStrategy::Balanced:
@@ -182,7 +185,7 @@ std::unique_ptr<DeviceMemoryManager::MemoryBlock> DeviceMemoryManager::Allocatio
 			// Appending to last
 			blockOffset = utils::alignedOffset(offset, memReqs.alignment);
 			blockPadding = utils::paddingSize(memReqs.size, memReqs.alignment);
-			if (blockOffset + memReqs.size + blockPadding > size) { throw SubAllocationFailedError(); }
+			if (blockOffset + memReqs.size + blockPadding > size) { return nullptr; }
 			neighbours = std::make_tuple(tail, nullptr);
 			break;
 	}

@@ -78,10 +78,6 @@ public:
 		std::unique_ptr<MemoryBlock> allocateMemoryBlock(const vk::MemoryRequirements& memReqs, AllocationStrategy as);
 		void syncRemoveMemoryBlock(MemoryBlock* mb);
 
-		class SubAllocationFailedError : std::exception {
-			const char* what() const override { return "Failed to sub-allocate memory block"; };
-		};
-
 		DeviceMemoryManager& dmm;
 		MemoryBlock* head = nullptr;
 		MemoryBlock* tail = nullptr; // Keep track of head and tail of doubly linked list

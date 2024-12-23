@@ -9,11 +9,12 @@ enum class LightTypes {
 
 struct PointLight {
 	glm::vec3 position, colour;
-	float attenuationConstant, attenuationLinear, attenuationQuadratic;
+	float intensity, range;
 };
 
 struct DirectionalLight {
 	glm::vec3 direction, colour;
+	float intensity;
 };
 
 }

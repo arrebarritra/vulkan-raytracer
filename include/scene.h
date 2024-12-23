@@ -4,13 +4,17 @@
 #include <filesystem>
 
 #include <glm/glm.hpp>
-#include <assimp/scene.h>
 #include <camera.h>
 
 #include <mesh.h>
 #include <material.h>
 #include <texture.h>
 #include <light.h>
+
+#define TINYGLTF_NO_EXTERNAL_IMAGE
+#define TINYGLTF_NO_STB_IMAGE
+#define TINYGLTF_NO_STB_IMAGE_WRITE
+#include <tiny_gltf.h>
 
 namespace vkrt {
 
@@ -19,12 +23,12 @@ class SceneObject {
 	friend class Scene;
 
 public:
-	SceneObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices);
+	SceneObject(SceneObject* parent, glm::mat4& transform = glm::mat4(1.0f), int meshIdx = -1);
 	SceneObject(const SceneObject&) = delete;
 	SceneObject& operator=(const SceneObject&) = delete;
 
 	glm::mat4 transform;
-	std::vector<uint32_t> meshIndices;
+	int meshIdx;
 
 private:
 	uint32_t depth;
@@ -43,16 +47,17 @@ public:
 
 	// Resources
 	std::vector<Mesh> meshPool;
+	std::vector<GeometryInfo> geometryInfos;
 	std::vector<Material> materials;
 	std::vector<std::unique_ptr<Texture>> texturePool;
 	std::unordered_map<std::filesystem::path, uint32_t> texturesNameToIndex;
 	std::vector<PointLight> pointLights;
 	std::vector<DirectionalLight> directionalLights;
-	std::unordered_map<std::string, std::tuple<LightTypes, uint32_t>> lightNameToIndex;
+	std::vector<std::tuple<LightTypes, uint32_t>> lightGlobalToTypeIndex;
 
 	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer, pointLightsBuffer, directionalLightsBuffer;
 
-	SceneObject& addObject(SceneObject* parent, glm::mat4& transform, std::vector<uint32_t> meshIndices);
+	SceneObject& addObject(SceneObject* parent, glm::mat4& transform, int meshIdx);
 	void loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem::path path);
 
 
@@ -116,7 +121,7 @@ public:
 	iterator end() { return iterator(nullptr, 0); };
 
 private:
-	void processModelRecursive(SceneObject* parent, const aiScene* scene, const aiNode* node, const glm::mat4 parentTransform, uint32_t baseMeshOffset);
+	void processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
 
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;

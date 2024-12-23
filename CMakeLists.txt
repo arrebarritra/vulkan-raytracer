@@ -46,6 +46,7 @@ source_group("Shader files" FILES ${SHADER_FILES})
 
 include_directories(PRIVATE ${INCLUDE_DIR})
 include_directories(PRIVATE "${EXTERNAL_FOLDER}/stb")
+include_directories("${EXTERNAL_FOLDER}/tinygltf")
 add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES})
 
 string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
@@ -61,13 +62,16 @@ find_package(Vulkan REQUIRED)
 
 add_subdirectory("${EXTERNAL_FOLDER}/glfw" EXCLUDE_FROM_ALL)
 add_subdirectory("${EXTERNAL_FOLDER}/glm" EXCLUDE_FROM_ALL)
-add_subdirectory("${EXTERNAL_FOLDER}/assimp" EXCLUDE_FROM_ALL)
+
+#set(TINYGLTF_HEADER_ONLY ON CACHE INTERNAL "" FORCE)
+#set(TINYGLTF_INSTALL OFF CACHE INTERNAL "" FORCE)
+#add_subdirectory("${EXTERNAL_FOLDER}/tinygltf")
 
 target_link_libraries(${PROJECT_NAME}
-  PUBLIC Vulkan::Vulkan glm::glm glfw assimp
+  PUBLIC Vulkan::Vulkan glm::glm glfw
 )
 
-add_dependencies(${PROJECT_NAME} glfw assimp)
+add_dependencies(${PROJECT_NAME} glfw)
 
 # Compile shaders
 find_program(glslc_executable NAMES glslc HINTS Vulkan::glslc)

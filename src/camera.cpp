@@ -5,27 +5,15 @@
 namespace vkrt {
 
 Camera::Camera()
-	: position(glm::vec3(0.0f))
+	: position(glm::vec3(0.0f, 1.0f, 0.0f))
 	, direction(glm::vec3(0.0f, 0.0f, 1.0f))
-	, up(glm::vec3(0.0f, -1.0f, 0.0f))
+	, up(glm::vec3(0.0f, 1.0f, 0.0f))
 	, aspect(1.0f)
 	, near(0.1f)
 	, far(1000.0f)
-	, fov(0.4 * glm::pi<float>())
+	, fov(70.0 * (glm::pi<float>() / 180.0))
 	, speed(2.0f)
 	, sensitivity(0.01f) {}
-
-Camera::Camera(const aiCamera* cam, float width, float height)
-	: aspect(static_cast<float>(width) / static_cast<float>(height))
-	, near(cam->mClipPlaneNear)
-	, far(cam->mClipPlaneNear)
-	, fov(cam->mClipPlaneFar)
-{
-	memcpy(&position, &cam->mPosition, sizeof(glm::vec3));
-	auto& d = cam->mLookAt - cam->mPosition;
-	memcpy(&direction, &d, sizeof(glm::vec3));
-	memcpy(&up, &cam->mUp, sizeof(glm::vec3));
-}
 
 void Camera::processKeyInput(GLFWwindow* window, double dt) {
 	float speedMul;
@@ -47,7 +35,7 @@ void Camera::processKeyInput(GLFWwindow* window, double dt) {
 void Camera::cursorPosCallback(GLFWwindow* window, double dx, double dy) {
 	if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
 		auto& rotX = glm::angleAxis(static_cast<float>(dx) * sensitivity / (glm::two_pi<float>()), -up);
-		auto& rotY = glm::angleAxis(static_cast<float>(dy) * sensitivity / (glm::two_pi<float>()), glm::normalize(glm::cross(direction, up)));
+		auto& rotY = glm::angleAxis(static_cast<float>(dy) * sensitivity / (-glm::two_pi<float>()), glm::normalize(glm::cross(direction, up)));
 		direction = rotX * direction;
 		direction = rotY * direction;
 	}

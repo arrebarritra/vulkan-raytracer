@@ -3,9 +3,6 @@
 #include <camera.h>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-
 namespace vkrt {
 
 const std::vector<const char*> Raytracer::raytracingRequiredExtensions{
@@ -47,7 +44,7 @@ Raytracer::Raytracer()
 	raytraceCmdBuffers = device->allocateCommandBuffersUnique(cmdBufferAI);
 
 	// Create acceleration structure
-	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"cornell.gltf");
+	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"NewSponza_Main_glTF_003.gltf");
 	rth->flushPendingTransfers();
 
 	//CHECK_VULKAN_RESULT(device->waitForFences({ *scene.meshPool.back().vertices->writeFinishedFence, *scene.meshPool.back().indices->writeFinishedFence },
@@ -116,7 +113,7 @@ void Raytracer::createRaytracingPipeline() {
 		.setBinding(2u)
 		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR);
 	auto geometryInfoBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(3u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)

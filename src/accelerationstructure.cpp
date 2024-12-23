@@ -87,9 +87,9 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 	std::vector<vk::AccelerationStructureGeometryKHR> accelerationStructureGeometries;
 	std::vector<vk::AccelerationStructureBuildGeometryInfoKHR> accelerationStructureBGIs;
 	std::vector<vk::AccelerationStructureBuildRangeInfoKHR> accelerationStructureBRIs;
-	accelerationStructureGeometries.reserve(scene.meshPool.size());
-	accelerationStructureBRIs.reserve(scene.meshPool.size());
-	accelerationStructureBGIs.reserve(scene.meshPool.size());
+	accelerationStructureGeometries.reserve(scene.geometryInfos.size());
+	accelerationStructureBRIs.reserve(scene.geometryInfos.size());
+	accelerationStructureBGIs.reserve(scene.geometryInfos.size());
 
 	std::array<std::array<float, 4Ui64>, 3Ui64> transformMatrix{
 		1.0f, 0.0f, 0.0f, 0.0f,
@@ -105,56 +105,59 @@ void AccelerationStructure::buildBLAS(std::vector<std::unique_ptr<Buffer>>& scra
 	blasBuffers.reserve(scene.meshPool.size());
 	scratchBuffers.reserve(scene.meshPool.size());
 	for (auto& mesh : scene.meshPool) {
-		accelerationStructureGeometries.push_back(
-			vk::AccelerationStructureGeometryKHR{}
-			.setFlags(scene.materials[mesh.materialIdx].doubleSided ? vk::GeometryFlagsKHR{} : vk::GeometryFlagBitsKHR::eOpaque)
-			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
-			.setGeometry(vk::AccelerationStructureGeometryTrianglesDataKHR{}
-						 .setVertexData(device->getBufferAddress(**mesh.vertices))
-						 .setVertexStride(sizeof(Vertex))
-						 .setVertexFormat(vk::Format::eR32G32B32Sfloat)
-						 .setMaxVertex(mesh.nVertices - 1u)
-						 .setIndexType(vk::IndexType::eUint32)
-						 .setIndexData(device->getBufferAddress(**mesh.indices))
-						 .setTransformData(device->getBufferAddress(**transformBuffer))));
-		auto accelerationStuctureBGI = vk::AccelerationStructureBuildGeometryInfoKHR{}
-			.setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
-			.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-			.setGeometries(accelerationStructureGeometries.back());
-		auto accelerationStructureBSI = device->getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, accelerationStuctureBGI, mesh.nIndices / 3u);
+		for (int i = 0; i < mesh.vertexBuffers.size(); i++) {
+			accelerationStructureGeometries.push_back(
+				vk::AccelerationStructureGeometryKHR{}
+				.setFlags(scene.materials[mesh.materialIndices[i]].doubleSided ? vk::GeometryFlagsKHR{} : vk::GeometryFlagBitsKHR::eOpaque)
+				.setGeometryType(vk::GeometryTypeKHR::eTriangles)
+				.setGeometry(vk::AccelerationStructureGeometryTrianglesDataKHR{}
+							 .setVertexData(device->getBufferAddress(**mesh.vertexBuffers[i]))
+							 .setVertexStride(sizeof(Vertex))
+							 .setVertexFormat(vk::Format::eR32G32B32Sfloat)
+							 .setMaxVertex(mesh.vertexCounts[i] - 1u)
+							 .setIndexType(vk::IndexType::eUint32)
+							 .setIndexData(device->getBufferAddress(**mesh.indexBuffers[i]))
+							 .setTransformData(device->getBufferAddress(**transformBuffer))));
+			auto accelerationStuctureBGI = vk::AccelerationStructureBuildGeometryInfoKHR{}
+				.setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
+				.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
+				.setGeometries(accelerationStructureGeometries.back());
+			auto accelerationStructureBSI = device->getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, accelerationStuctureBGI, mesh.indexCounts[i] / 3u);
 
-		auto blasBufferCI = vk::BufferCreateInfo{}
-			.setSize(accelerationStructureBSI.accelerationStructureSize)
-			.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
-		blasBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, blasBufferCI,
-														  nullptr, MemoryStorage::DevicePersistent));
+			auto blasBufferCI = vk::BufferCreateInfo{}
+				.setSize(accelerationStructureBSI.accelerationStructureSize)
+				.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress);
+			blasBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, blasBufferCI,
+															  nullptr, MemoryStorage::DevicePersistent));
 
-		// With known build size we can now actually create BLAS
-		auto accelerationStructureCI = vk::AccelerationStructureCreateInfoKHR{}
-			.setBuffer(**blasBuffers.back())
-			.setSize(accelerationStructureBSI.accelerationStructureSize)
-			.setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
-		blas.push_back(device->createAccelerationStructureKHRUnique(accelerationStructureCI));
+			// With known build size we can now actually create BLAS
+			auto accelerationStructureCI = vk::AccelerationStructureCreateInfoKHR{}
+				.setBuffer(**blasBuffers.back())
+				.setSize(accelerationStructureBSI.accelerationStructureSize)
+				.setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
+			blas.push_back(device->createAccelerationStructureKHRUnique(accelerationStructureCI));
 
-		scratchBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, vk::BufferCreateInfo{}
-															 .setSize(mode == vk::BuildAccelerationStructureModeKHR::eBuild ? accelerationStructureBSI.buildScratchSize : accelerationStructureBSI.updateScratchSize)
-															 .setUsage(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress),
-															 nullptr, MemoryStorage::DevicePersistent));
+			scratchBuffers.emplace_back(std::make_unique<Buffer>(device, dmm, rth, vk::BufferCreateInfo{}
+																 .setSize(mode == vk::BuildAccelerationStructureModeKHR::eBuild ? accelerationStructureBSI.buildScratchSize : accelerationStructureBSI.updateScratchSize)
+																 .setUsage(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress),
+																 nullptr, MemoryStorage::DevicePersistent));
 
-		accelerationStructureBGIs.push_back(accelerationStuctureBGI
-											.setMode(mode)
-											.setSrcAccelerationStructure(mode == vk::BuildAccelerationStructureModeKHR::eUpdate ? *blas.back() : nullptr)
-											.setDstAccelerationStructure(*blas.back())
-											.setScratchData(device->getBufferAddress(**scratchBuffers.back())));
-		accelerationStructureBRIs.push_back(vk::AccelerationStructureBuildRangeInfoKHR{}
-											.setPrimitiveCount(mesh.nIndices / 3u)
-											.setPrimitiveOffset(0u)
-											.setFirstVertex(0u)
-											.setTransformOffset(0u));
+			accelerationStructureBGIs.push_back(accelerationStuctureBGI
+												.setMode(mode)
+												.setSrcAccelerationStructure(mode == vk::BuildAccelerationStructureModeKHR::eUpdate ? *blas.back() : nullptr)
+												.setDstAccelerationStructure(*blas.back())
+												.setScratchData(device->getBufferAddress(**scratchBuffers.back())));
+			accelerationStructureBRIs.push_back(vk::AccelerationStructureBuildRangeInfoKHR{}
+												.setPrimitiveCount(mesh.indexCounts[i] / 3u)
+												.setPrimitiveOffset(0u)
+												.setFirstVertex(0u)
+												.setTransformOffset(0u));
+		}
 	}
 
-	auto accelerationStructureBRIPointers = std::vector<vk::AccelerationStructureBuildRangeInfoKHR*>(scene.meshPool.size());
-	std::transform(accelerationStructureBRIs.begin(), accelerationStructureBRIs.end(), accelerationStructureBRIPointers.begin(),
+	std::vector<vk::AccelerationStructureBuildRangeInfoKHR*> accelerationStructureBRIPointers;
+	accelerationStructureBRIPointers.reserve(scene.geometryInfos.size());
+	std::transform(accelerationStructureBRIs.begin(), accelerationStructureBRIs.end(), std::back_inserter(accelerationStructureBRIPointers),
 				   [](vk::AccelerationStructureBuildRangeInfoKHR& bri) { return &bri; });
 	asBuildCmdBuffer->buildAccelerationStructuresKHR(accelerationStructureBGIs, accelerationStructureBRIPointers);
 }
@@ -164,22 +167,24 @@ void AccelerationStructure::buildTLAS(std::vector<std::unique_ptr<Buffer>>& inst
 	instanceDataOpaque.reserve(scene.objectCount);
 	instanceDataTransparent.reserve(scene.objectCount);
 
-	uint32_t idx = 0;
+	uint32_t idx = 0u;
 	for (auto& it = scene.begin(); it != scene.end(); it++) {
-		const auto& sceneObject = (*it);
-		for (auto meshIdx : sceneObject.meshIndices) {
+		const SceneObject& sceneObject = (*it);
+		if (sceneObject.meshIdx == -1) continue;
+		const Mesh& mesh = scene.meshPool[sceneObject.meshIdx];
+		for (int i = 0; i < mesh.vertexBuffers.size(); i++) {
 			std::array<std::array<float, 4Ui64>, 3Ui64> transformMatrix;
 			auto affineTransform = glm::mat3x4(glm::transpose(it.transform));
 			memcpy(transformMatrix.data(), &affineTransform, sizeof(transformMatrix));
 
-			auto& instanceData = scene.materials[scene.meshPool[meshIdx].materialIdx].baseColourFactor.a == 1.0f ? instanceDataOpaque : instanceDataTransparent;
+			auto& instanceData = scene.materials[mesh.materialIndices[i]].baseColourFactor.a == 1.0f ? instanceDataOpaque : instanceDataTransparent;
 			instanceData.push_back(vk::AccelerationStructureInstanceKHR{}
 								   .setTransform(vk::TransformMatrixKHR{}.setMatrix(transformMatrix))
-								   .setInstanceCustomIndex(meshIdx)
+								   .setInstanceCustomIndex(idx)
 								   .setMask(0xFF)
 								   .setInstanceShaderBindingTableRecordOffset(0u)
-								   .setFlags(scene.materials[scene.meshPool[meshIdx].materialIdx].doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagBitsKHR::eTriangleFrontCounterclockwise)
-								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[meshIdx])));
+								   .setFlags(scene.materials[scene.geometryInfos[idx].materialIdx].doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagBitsKHR::eTriangleFrontCounterclockwise)
+								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[idx])));
 			idx++;
 		}
 	}

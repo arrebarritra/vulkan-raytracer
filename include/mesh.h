@@ -7,27 +7,27 @@
 namespace vkrt {
 
 struct Vertex {
-	glm::vec3 position, normal, tangent, bitangent;
+	glm::vec3 position, normal;
+	glm::vec4 tangent;
 	glm::vec2 uv0, uv1;
 };
 
 using Index = uint32_t;
 
-struct MeshInfo {
+struct GeometryInfo {
 	vk::DeviceAddress vertexBufferAddress, indexBufferAddress;
 	uint32_t materialIdx;
 
-	MeshInfo(vk::DeviceAddress vertexBufferAddress, vk::DeviceAddress indexBufferAddress, uint32_t materialIdx)
+	GeometryInfo(vk::DeviceAddress vertexBufferAddress, vk::DeviceAddress indexBufferAddress, uint32_t materialIdx)
 		: vertexBufferAddress(vertexBufferAddress), indexBufferAddress(indexBufferAddress), materialIdx(materialIdx) {}
 };
 
 class Mesh {
 public:
-	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, vk::ArrayProxyNoTemporaries<Vertex> vertices, vk::ArrayProxyNoTemporaries<Index> indices, uint32_t materialIdx = -1u);
+	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, std::vector<std::vector<Vertex>> vertices, std::vector<std::vector<Index>> indices, std::vector<uint32_t> materialIndices);
 
-	uint32_t nVertices, nIndices, materialIdx;
-	std::unique_ptr<Buffer> vertices, indices;
-
+	std::vector<uint32_t> vertexCounts, indexCounts, materialIndices;
+	std::vector<std::unique_ptr<Buffer>> vertexBuffers, indexBuffers;
 };
 
 }
