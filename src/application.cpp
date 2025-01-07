@@ -38,6 +38,7 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 
 	// Get required GLFW extensions
 	glfwInit();
+	camera.aspect = width / height;
 	uint32_t glfwReqExtCount;
 	auto glfwReqExt = glfwGetRequiredInstanceExtensions(&glfwReqExtCount);
 	std::vector<const char*> glfwExtensions(glfwReqExtCount);
@@ -111,6 +112,7 @@ void Application::createWindow() {
 	glfwHideWindow(window);
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	glfwSetWindowIconifyCallback(window, iconifyCallback);
 	glfwSetKeyCallback(window, keyCallback);
 	glfwSetCursorPosCallback(window, cursorPosCallback);
 }
@@ -299,25 +301,33 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 }
 
 void Application::recreateSwapchain() {
-	glfwGetWindowSize(window, reinterpret_cast<int*>(&width), reinterpret_cast<int*>(&height));
-	if (width == 0 || height == 0)
-		minimised = true;
-	else
-		minimised = false;
-
 	device->waitIdle();
 	//oldSwapchain = std::move(swapchain);
 	createSwapchain();
 }
 
 void Application::handleResize() {
+	glfwGetWindowSize(window, reinterpret_cast<int*>(&width), reinterpret_cast<int*>(&height));
+	if (width == 0 || height == 0) {
+		minimised = true;
+		return;
+	} else {
+		minimised = false;
+	}
+
 	framebufferResized = false;
+	camera.aspect = width / height;
 	recreateSwapchain();
 }
 
 void Application::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
 	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 	app->framebufferResized = true;
+}
+
+void Application::iconifyCallback(GLFWwindow* window, int iconified) {
+	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+	app->minimised = static_cast<bool>(iconified);
 }
 
 void Application::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -361,30 +371,35 @@ void Application::renderLoop() {
 		//CHECK_VULKAN_RESULT(device->waitForFences(*frameFinishedFences[frameIdx], vk::True, std::numeric_limits<uint64_t>::max()));
 		rth->flushPendingTransfers(frameFinishedFences[frameIdx]);
 
-		uint32_t imageIdx;
-		try {
-			auto imageIdxRV = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint32_t>::max(), *imageAcquiredSemaphores[frameIdx], nullptr);
-			imageIdx = imageIdxRV.value;
-		} catch (vk::OutOfDateKHRError const& e) {
-			handleResize();
-			continue;
+		uint32_t imageIdx = -1u;
+		if (!minimised) {
+			try {
+				auto imageIdxRV = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint32_t>::max(), *imageAcquiredSemaphores[frameIdx], nullptr);
+				imageIdx = imageIdxRV.value;
+			} catch (vk::OutOfDateKHRError const& e) {
+				handleResize();
+				continue;
+			}
 		}
 
 		device->resetFences(*frameFinishedFences[frameIdx]);
 		drawFrame(imageIdx, frameIdx, imageAcquiredSemaphores[frameIdx], renderFinishedSemaphores[frameIdx], frameFinishedFences[frameIdx]);
 
-		const vk::Semaphore& renderFinishedSemaphore = *(renderFinishedSemaphores[frameIdx]);
-		auto presentInfo = vk::PresentInfoKHR{}
-			.setWaitSemaphores(renderFinishedSemaphore)
-			.setSwapchains(*swapchain)
-			.setImageIndices(imageIdx);
-		try {
-			const auto res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);
-			if (framebufferResized || res == vk::Result::eSuboptimalKHR)
+		if (!minimised) {
+			const vk::Semaphore& renderFinishedSemaphore = *(renderFinishedSemaphores[frameIdx]);
+			auto presentInfo = vk::PresentInfoKHR{}
+				.setWaitSemaphores(renderFinishedSemaphore)
+				.setSwapchains(*swapchain)
+				.setImageIndices(imageIdx);
+			try {
+				const auto res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);
+				if (framebufferResized || res == vk::Result::eSuboptimalKHR)
+					handleResize();
+			} catch (vk::OutOfDateKHRError const& e) {
 				handleResize();
-		} catch (vk::OutOfDateKHRError const& e) {
-			handleResize();
+			}
 		}
+
 		glfwPollEvents();
 		frameTime = (std::chrono::steady_clock::now() - frameStart).count() / 1e9;
 		++frameIdx %= framesInFlight;

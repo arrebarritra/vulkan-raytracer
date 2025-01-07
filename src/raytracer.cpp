@@ -199,17 +199,17 @@ void Raytracer::createRaytracingPipeline() {
 void Raytracer::createShaderBindingTable() {
 	uint32_t handleSize = utils::alignedSize(raytracingPipelineProperties.shaderGroupHandleSize, raytracingPipelineProperties.shaderGroupHandleAlignment);
 	auto shaderGroupHandles = device->getRayTracingShaderGroupHandlesKHR<char>(*raytracingPipeline, 0u, shaderGroups.size(), shaderGroups.size() * handleSize);
-	
+
 	auto raygenSBTCI = vk::BufferCreateInfo{}
 		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
 		.setSize(raygenShaders.size() * handleSize);
 	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, raygenSBTCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(raygenShaders.size() * handleSize),  shaderGroupHandles.data() }, MemoryStorage::DeviceDynamic);
-	
+
 	auto missSBTCI = vk::BufferCreateInfo{}
 		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
 		.setSize(missShaders.size() * handleSize);
 	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, missSBTCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(missShaders.size() * handleSize), shaderGroupHandles.data() + raygenShaders.size() * handleSize }, MemoryStorage::DeviceDynamic);
-	
+
 	auto hitSBTCI = vk::BufferCreateInfo{}
 		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
 		.setSize(hitShaders.size() * handleSize);
@@ -321,7 +321,7 @@ void Raytracer::updateDescriptorSets() {
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
 	descriptorWrites = { accelerationStructureWrite, resultImageWrite, uniformBufferWrite,
-						 geometryInfoBufferWrite, materialsBufferWrite, 
+						 geometryInfoBufferWrite, materialsBufferWrite,
 						 pointLightsBufferWrite, directionalLightsBufferWrite, textureWrites
 	};
 	device->updateDescriptorSets(descriptorWrites, nullptr);
@@ -365,7 +365,7 @@ void Raytracer::recordCommandbuffer(uint32_t frameIdx) {
 
 void Raytracer::handleResize() {
 	Application::handleResize();
-
+	if (minimised) return;
 	// Resize storage image
 	auto storageImageCI = vk::ImageCreateInfo{}
 		.setImageType(vk::ImageType::e2D)
@@ -408,22 +408,24 @@ void Raytracer::drawFrame(uint32_t imageidx, uint32_t frameIdx, vk::SharedSemaph
 	auto submitInfo = vk::SubmitInfo{}
 		.setCommandBuffers(*raytraceCmdBuffers[frameIdx])
 		.setSignalSemaphores(signalSemaphore);
-	std::get<vk::Queue>(graphicsQueue).submit(submitInfo);
+	std::get<vk::Queue>(graphicsQueue).submit(submitInfo, minimised ? *frameFinishedFence : vk::Fence{});
 
-	auto imgCp = vk::ImageCopy{}
-		.setSrcSubresource(vk::ImageSubresourceLayers{}
-						   .setAspectMask(vk::ImageAspectFlagBits::eColor)
-						   .setBaseArrayLayer(0u)
-						   .setLayerCount(1u)
-						   .setMipLevel(0u))
-		.setDstSubresource(vk::ImageSubresourceLayers{}
-						   .setAspectMask(vk::ImageAspectFlagBits::eColor)
-						   .setBaseArrayLayer(0u)
-						   .setLayerCount(1u)
-						   .setMipLevel(0u))
-		.setExtent(vk::Extent3D{ width, height, 1u });
-	SyncInfo storageToSwapchainSI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
-	storageImage->copyTo(swapchainImages[imageidx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainSI));
+	if (!minimised) {
+		auto imgCp = vk::ImageCopy{}
+			.setSrcSubresource(vk::ImageSubresourceLayers{}
+							   .setAspectMask(vk::ImageAspectFlagBits::eColor)
+							   .setBaseArrayLayer(0u)
+							   .setLayerCount(1u)
+							   .setMipLevel(0u))
+			.setDstSubresource(vk::ImageSubresourceLayers{}
+							   .setAspectMask(vk::ImageAspectFlagBits::eColor)
+							   .setBaseArrayLayer(0u)
+							   .setLayerCount(1u)
+							   .setMipLevel(0u))
+			.setExtent(vk::Extent3D{ width, height, 1u });
+		SyncInfo storageToSwapchainSI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
+		storageImage->copyTo(swapchainImages[imageidx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainSI));
+	}
 
 	sampleCount++;
 }

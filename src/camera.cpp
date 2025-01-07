@@ -48,7 +48,7 @@ void Camera::cursorPosCallback(GLFWwindow* window, double dx, double dy) {
 		auto& rotY = glm::angleAxis(static_cast<float>(dy) * sensitivity / (-glm::two_pi<float>()), glm::normalize(glm::cross(direction, up)));
 		direction = rotX * direction;
 		direction = rotY * direction;
-		if (dx != 0.0 && dy != 0.0) directionChanged = true;
+		if (dx != 0.0 || dy != 0.0) directionChanged = true;
 	}
 }
 

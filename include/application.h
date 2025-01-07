@@ -44,7 +44,7 @@ protected:
 	GLFWwindow* window;
 	vk::UniqueSurfaceKHR surface;
 	bool framebufferResized = false;
-	bool minimised = true;
+	bool minimised = false;
 
 	// Devices
 	vk::PhysicalDevice physicalDevice;
@@ -116,6 +116,7 @@ private:
 									vk::ArrayProxy<vk::PresentModeKHR> const& preferredPresModes);
 
 	static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+	static void iconifyCallback(GLFWwindow* window, int iconified);
 	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 };
