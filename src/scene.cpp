@@ -202,23 +202,25 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 		processModelRecursive(parent, model, model.nodes[nodeIdx], glm::mat4(1.0f));
 
 	// Light positions processed during scene traversal, so we upload these after it is done
+	uint32_t numPointLights = pointLights.size();
 	auto pointLightsBufferCI = vk::BufferCreateInfo{}
-		.setSize(sizeof(uint32_t) + pointLights.size() * sizeof(PointLight))
-		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
+		.setSize(sizeof(uint32_t) + numPointLights * sizeof(PointLight))
+		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst);
 	pointLightsBuffer = std::make_unique<Buffer>(device, dmm, rth, pointLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
 
-	uint32_t numPointLights = pointLights.size();
 	pointLightsBuffer->write({ sizeof(uint32_t), (char*)&numPointLights });
-	pointLightsBuffer->write({ static_cast<uint32_t>(numPointLights * sizeof(PointLight)), (char*)pointLights.data() }, sizeof(uint32_t));
-
-	auto directionalLightsBufferCI = vk::BufferCreateInfo{}
-		.setSize(sizeof(uint32_t) + directionalLights.size() * sizeof(DirectionalLight))
-		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	directionalLightsBuffer = std::make_unique<Buffer>(device, dmm, rth, directionalLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
+	if (numPointLights > 0)
+		pointLightsBuffer->write({ static_cast<uint32_t>(numPointLights * sizeof(PointLight)), (char*)pointLights.data() }, sizeof(uint32_t));
 
 	uint32_t numDirectionalLights = directionalLights.size();
+	auto directionalLightsBufferCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(uint32_t) + numDirectionalLights * sizeof(DirectionalLight))
+		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst);
+	directionalLightsBuffer = std::make_unique<Buffer>(device, dmm, rth, directionalLightsBufferCI, nullptr, MemoryStorage::DevicePersistent);
+
 	directionalLightsBuffer->write({ sizeof(uint32_t), (char*)&numDirectionalLights });
-	directionalLightsBuffer->write({ static_cast<uint32_t>(numDirectionalLights * sizeof(DirectionalLight)), (char*)directionalLights.data() }, sizeof(uint32_t));
+	if (numDirectionalLights > 0)
+		directionalLightsBuffer->write({ static_cast<uint32_t>(numDirectionalLights * sizeof(DirectionalLight)), (char*)directionalLights.data() }, sizeof(uint32_t));
 
 	LOG_INFO("Finished loading model %s", path.filename().string().c_str());
 }

@@ -76,7 +76,7 @@ protected:
 
 	virtual void handleResize();
 	virtual void createCommandPools() = 0;
-	virtual void drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
+	virtual void drawFrame(uint32_t imageIdx, uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
 						   vk::SharedFence frameFinishedFence) = 0;
 
 private:
@@ -96,7 +96,8 @@ private:
 	std::set<const char*, cstrless> deviceExtensions{
 		vk::KHRSwapchainExtensionName,
 		vk::KHRBufferDeviceAddressExtensionName,
-		vk::KHRShaderNonSemanticInfoExtensionName
+		vk::KHRShaderNonSemanticInfoExtensionName,
+		vk::EXTScalarBlockLayoutExtensionName
 	};
 #ifndef NDEBUG
 	std::vector<vk::ValidationFeatureEnableEXT> enabledValidationFeatures = { vk::ValidationFeatureEnableEXT::eDebugPrintf };

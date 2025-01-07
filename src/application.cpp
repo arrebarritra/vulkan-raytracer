@@ -8,11 +8,14 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace vkrt {
 
+auto scalarBlockLayoutFeatures = vk::PhysicalDeviceScalarBlockLayoutFeaturesEXT{}
+.setScalarBlockLayout(vk::True);
 auto bufferDeviceAddressFeatures = vk::PhysicalDeviceBufferDeviceAddressFeatures{}
 .setBufferDeviceAddress(vk::True)
 #ifndef NDEBUG
 .setBufferDeviceAddressCaptureReplay(vk::True)
 #endif
+.setPNext(&scalarBlockLayoutFeatures)
 ;
 
 Application::Application(std::string appName, uint32_t width, uint32_t height, const uint32_t apiVersion,
@@ -105,6 +108,7 @@ void Application::createInstance() {
 void Application::createWindow() {
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	window = glfwCreateWindow(width, height, appName.c_str(), nullptr, nullptr);
+	glfwHideWindow(window);
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 	glfwSetKeyCallback(window, keyCallback);
@@ -206,13 +210,13 @@ std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bo
 			continue;
 		}
 		if (separateTransferQueue && selectedQueues[1] == -1u) {
-			if (utils::isSubset(vk::QueueFlags{vk::QueueFlagBits::eTransfer}, qfp.queueFlags)) {
+			if (utils::isSubset(vk::QueueFlags{ vk::QueueFlagBits::eTransfer }, qfp.queueFlags)) {
 				selectedQueues[1] = currQueueIndex;
 				continue;
 			}
 		}
 		if (separateComputeQueue && selectedQueues[2] == -1u) {
-			if (utils::isSubset(vk::QueueFlags{vk::QueueFlagBits::eCompute}, qfp.queueFlags)) {
+			if (utils::isSubset(vk::QueueFlags{ vk::QueueFlagBits::eCompute }, qfp.queueFlags)) {
 				selectedQueues[2] = currQueueIndex;
 				continue;
 			}
@@ -263,7 +267,6 @@ void Application::createSwapchain() {
 
 	swapchain.reset();
 	swapchain = device->createSwapchainKHRUnique(swapchainCI);
-
 	swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 }
 
@@ -278,9 +281,9 @@ void Application::determineSwapchainSettings(const vk::ArrayProxy<vk::SurfaceFor
 	// Find format
 	for (const auto& pf : preferredFormats) {
 		if (const auto& it = std::find_if(availableFormats.begin(), availableFormats.end(),
-									[pf](vk::SurfaceFormatKHR format) {
-										return format.format == pf.format && format.colorSpace == pf.colorSpace;
-									}); it != availableFormats.end()) {
+										  [pf](vk::SurfaceFormatKHR format) {
+											  return format.format == pf.format && format.colorSpace == pf.colorSpace;
+										  }); it != availableFormats.end()) {
 			swapchainFormat = *it;
 			break;
 		};
@@ -355,28 +358,29 @@ void Application::renderLoop() {
 	while (!glfwWindowShouldClose(window)) {
 		auto frameStart = std::chrono::steady_clock::now();
 		camera.processKeyInput(window, frameTime);
-		CHECK_VULKAN_RESULT(device->waitForFences(*frameFinishedFences[frameIdx], vk::True, std::numeric_limits<uint64_t>::max()));
+		//CHECK_VULKAN_RESULT(device->waitForFences(*frameFinishedFences[frameIdx], vk::True, std::numeric_limits<uint64_t>::max()));
+		rth->flushPendingTransfers(frameFinishedFences[frameIdx]);
 
-		uint32_t imageIndex;
+		uint32_t imageIdx;
 		try {
-			auto imageIndexRV = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint32_t>::max(), *imageAcquiredSemaphores[frameIdx], nullptr);
-			imageIndex = imageIndexRV.value;
+			auto imageIdxRV = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint32_t>::max(), *imageAcquiredSemaphores[frameIdx], nullptr);
+			imageIdx = imageIdxRV.value;
 		} catch (vk::OutOfDateKHRError const& e) {
 			handleResize();
 			continue;
 		}
 
 		device->resetFences(*frameFinishedFences[frameIdx]);
-		drawFrame(frameIdx, imageAcquiredSemaphores[frameIdx], renderFinishedSemaphores[frameIdx], frameFinishedFences[frameIdx]);
+		drawFrame(imageIdx, frameIdx, imageAcquiredSemaphores[frameIdx], renderFinishedSemaphores[frameIdx], frameFinishedFences[frameIdx]);
 
 		const vk::Semaphore& renderFinishedSemaphore = *(renderFinishedSemaphores[frameIdx]);
 		auto presentInfo = vk::PresentInfoKHR{}
 			.setWaitSemaphores(renderFinishedSemaphore)
 			.setSwapchains(*swapchain)
-			.setPImageIndices(&imageIndex);
+			.setImageIndices(imageIdx);
 		try {
 			const auto res = std::get<vk::Queue>(graphicsQueue).presentKHR(presentInfo);
-			if (res == vk::Result::eSuboptimalKHR || framebufferResized)
+			if (framebufferResized || res == vk::Result::eSuboptimalKHR)
 				handleResize();
 		} catch (vk::OutOfDateKHRError const& e) {
 			handleResize();
@@ -388,7 +392,6 @@ void Application::renderLoop() {
 
 	device->waitIdle();
 	glfwTerminate();
-
 }
 
 }

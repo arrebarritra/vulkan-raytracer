@@ -35,7 +35,7 @@ private:
 
 	vk::SharedFence build(vk::BuildAccelerationStructureModeKHR mode, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> waitSemaphores = nullptr, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> signalSemaphores = nullptr);
 	void buildBLAS(std::vector<std::unique_ptr<Buffer>>& scratchBuffers, vk::BuildAccelerationStructureModeKHR mode);
-	void buildTLAS(std::vector<std::unique_ptr<Buffer>>& instanceBuffers, std::unique_ptr<Buffer>& scratchBuffer, vk::BuildAccelerationStructureModeKHR mode);
+	void buildTLAS(std::unique_ptr<Buffer>& instanceBuffer, std::unique_ptr<Buffer>& scratchBuffer, vk::BuildAccelerationStructureModeKHR mode);
 };
 
 }

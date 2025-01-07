@@ -22,22 +22,33 @@ void Camera::processKeyInput(GLFWwindow* window, double dt) {
 	else
 		speedMul = 1.0f;
 
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+	positionChanged = false;
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
 		position += speedMul * speed * direction * static_cast<float>(dt);
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		positionChanged = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
 		position -= speedMul * speed * direction * static_cast<float>(dt);
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+		positionChanged = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
 		position -= speedMul * speed * glm::normalize(glm::cross(direction, up)) * static_cast<float>(dt);
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+		positionChanged = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
 		position += speedMul * speed * glm::normalize(glm::cross(direction, up)) * static_cast<float>(dt);
+		positionChanged = true;
+	}
 }
 
 void Camera::cursorPosCallback(GLFWwindow* window, double dx, double dy) {
+	directionChanged = false;
 	if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
 		auto& rotX = glm::angleAxis(static_cast<float>(dx) * sensitivity / (glm::two_pi<float>()), -up);
 		auto& rotY = glm::angleAxis(static_cast<float>(dy) * sensitivity / (-glm::two_pi<float>()), glm::normalize(glm::cross(direction, up)));
 		direction = rotX * direction;
 		direction = rotY * direction;
+		if (dx != 0.0 && dy != 0.0) directionChanged = true;
 	}
 }
 

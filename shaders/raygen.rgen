@@ -1,9 +1,11 @@
 #version 460
 #extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_scalar_block_layout : require
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D image;
-layout(binding = 2, set = 0) uniform CameraProperties {
+layout(binding = 2, set = 0, scalar) uniform UniformData {
+	uint sampleCount;
 	mat4 viewInverse;
 	mat4 projInverse;
 } cam;
@@ -27,5 +29,8 @@ void main() {
 
     traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, tmin, direction.xyz, tmax, 0);
 
-	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1.0));
+	float weight = 1.0 / float(cam.sampleCount + 1);
+	vec3 curr = imageLoad(image, ivec2(gl_LaunchIDEXT.xy)).xyz;
+	vec3 weightedValue = hitValue * weight + curr * (1.0 - weight);
+	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(weightedValue, 1.0));
 }

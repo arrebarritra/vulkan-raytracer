@@ -21,7 +21,8 @@ ManagedResource::~ManagedResource() {
 	fences.reserve(2);
 	if (writeFinishedFence) fences.push_back(*writeFinishedFence);
 	if (readFinishedFence) fences.push_back(*readFinishedFence);
-	CHECK_VULKAN_RESULT(device->waitForFences(fences, vk::True, std::numeric_limits<uint64_t>::max()));
+	if (fences.size() > 0)
+		CHECK_VULKAN_RESULT(device->waitForFences(fences, vk::True, std::numeric_limits<uint64_t>::max()));
 }
 
 };

@@ -14,17 +14,23 @@ public:
 	~Raytracer() = default;
 
 private:
+
+	struct UniformData {
+		uint32_t sampleCount;
+		glm::mat4 viewInverse, projInverse;
+	};
+
 	static const std::vector<const char*> raytracingRequiredExtensions;
 	static const void* raytracingFeaturesChain;
 	static const uint32_t FRAMES_IN_FLIGHT = 3u;
+
+	uint32_t sampleCount = 0u;
 
 	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR raytracingPipelineProperties;
 
 	vk::UniqueCommandPool commandPool;
 	std::vector<vk::UniqueCommandBuffer> raytraceCmdBuffers;
 
-	char* imData[3];
-	std::unique_ptr<Buffer> buffer[3];
 	Scene scene;
 	std::unique_ptr<AccelerationStructure> as;
 	std::unique_ptr<Image> storageImage;
@@ -51,9 +57,10 @@ private:
 	void createShaderBindingTable();
 	void createDescriptorSets();
 	void updateDescriptorSets();
-	void recordCommandbuffer(uint32_t idx);
+	void recordCommandbuffer(uint32_t frameIdx);
 
-	void drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
+	void handleResize() override;
+	void drawFrame(uint32_t imageIdx, uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
 				   vk::SharedFence frameFinishedFence) override;
 };
 

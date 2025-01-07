@@ -44,7 +44,7 @@ Raytracer::Raytracer()
 	raytraceCmdBuffers = device->allocateCommandBuffersUnique(cmdBufferAI);
 
 	// Create acceleration structure
-	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"NewSponza_Main_glTF_003.gltf");
+	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"sponzasmall/Sponza.gltf");
 	rth->flushPendingTransfers();
 
 	//CHECK_VULKAN_RESULT(device->waitForFences({ *scene.meshPool.back().vertices->writeFinishedFence, *scene.meshPool.back().indices->writeFinishedFence },
@@ -77,11 +77,11 @@ Raytracer::Raytracer()
 		.setImage(**storageImage);
 	storageImageView = device->createImageViewUnique(storageImViewCI);
 
-	std::array matrices = { camera.getViewInv(), camera.getProjectionInv() };
+	UniformData uniformData{ sampleCount, camera.getViewInv(), camera.getProjectionInv() };
 	auto bufferCI = vk::BufferCreateInfo{}
-		.setSize(sizeof(matrices))
+		.setSize(sizeof(UniformData))
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
-	uniformBuffer = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ sizeof(matrices), (char*)matrices.data() }, MemoryStorage::DeviceDynamic);
+	uniformBuffer = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ sizeof(UniformData), (char*)&uniformData }, MemoryStorage::DeviceDynamic);
 
 	// Create resources
 	createRaytracingPipeline();
@@ -89,6 +89,8 @@ Raytracer::Raytracer()
 	createDescriptorSets();
 	updateDescriptorSets();
 	rth->flushPendingTransfers();
+
+	glfwShowWindow(window);
 }
 
 void Raytracer::createCommandPools() {
@@ -124,24 +126,24 @@ void Raytracer::createRaytracingPipeline() {
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
-		.setBinding(5u)
-		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-		.setDescriptorCount(static_cast<uint32_t>(scene.texturePool.size()))
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto pointLightsBufferLB = vk::DescriptorSetLayoutBinding{}
-		.setBinding(6u)
+		.setBinding(5u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto directionalLightsBufferLB = vk::DescriptorSetLayoutBinding{}
-		.setBinding(7u)
+		.setBinding(6u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+		.setBinding(7u)
+		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+		.setDescriptorCount(static_cast<uint32_t>(scene.texturePool.size()))
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	std::array layoutBindings = { accelerationStructureLB, resultImageLB, uniformBufferLB,
-									geometryInfoBufferLB, materialsBufferLB, textureSamplersLB,
-									pointLightsBufferLB, directionalLightsBufferLB };
+									geometryInfoBufferLB, materialsBufferLB,
+									pointLightsBufferLB, directionalLightsBufferLB, textureSamplersLB };
 
 	std::array<vk::DescriptorBindingFlagsEXT, 8> descriptorBindingFlags = {
 		vk::DescriptorBindingFlagsEXT{},
@@ -149,9 +151,9 @@ void Raytracer::createRaytracingPipeline() {
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
-		vk::DescriptorBindingFlagBitsEXT::eVariableDescriptorCount,
 		vk::DescriptorBindingFlagsEXT{},
-		vk::DescriptorBindingFlagsEXT{}
+		vk::DescriptorBindingFlagsEXT{},
+		vk::DescriptorBindingFlagBitsEXT::eVariableDescriptorCount
 	};
 	auto layoutBindingFlags = vk::DescriptorSetLayoutBindingFlagsCreateInfoEXT{}.setBindingFlags(descriptorBindingFlags);
 
@@ -195,14 +197,23 @@ void Raytracer::createRaytracingPipeline() {
 }
 
 void Raytracer::createShaderBindingTable() {
-	uint32_t handleSize = utils::alignedOffset(raytracingPipelineProperties.shaderGroupHandleSize, raytracingPipelineProperties.shaderGroupHandleAlignment);
+	uint32_t handleSize = utils::alignedSize(raytracingPipelineProperties.shaderGroupHandleSize, raytracingPipelineProperties.shaderGroupHandleAlignment);
 	auto shaderGroupHandles = device->getRayTracingShaderGroupHandlesKHR<char>(*raytracingPipeline, 0u, shaderGroups.size(), shaderGroups.size() * handleSize);
-	auto bufferCI = vk::BufferCreateInfo{}
+	
+	auto raygenSBTCI = vk::BufferCreateInfo{}
 		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
-		.setSize(handleSize);
-	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(raygenShaders.size() * handleSize),  shaderGroupHandles.data() }, MemoryStorage::DeviceDynamic);
-	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(missShaders.size() * handleSize), shaderGroupHandles.data() + raygenShaders.size() * handleSize }, MemoryStorage::DeviceDynamic);
-	hitShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI,
+		.setSize(raygenShaders.size() * handleSize);
+	raygenShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, raygenSBTCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(raygenShaders.size() * handleSize),  shaderGroupHandles.data() }, MemoryStorage::DeviceDynamic);
+	
+	auto missSBTCI = vk::BufferCreateInfo{}
+		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
+		.setSize(missShaders.size() * handleSize);
+	missShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, missSBTCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(missShaders.size() * handleSize), shaderGroupHandles.data() + raygenShaders.size() * handleSize }, MemoryStorage::DeviceDynamic);
+	
+	auto hitSBTCI = vk::BufferCreateInfo{}
+		.setUsage(vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress)
+		.setSize(hitShaders.size() * handleSize);
+	hitShaderBindingTable = std::make_unique<Buffer>(device, *dmm, *rth, hitSBTCI,
 													 vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(hitShaders.size() * handleSize), shaderGroupHandles.data() + (raygenShaders.size() + missShaders.size()) * handleSize },
 													 MemoryStorage::DeviceDynamic);
 }
@@ -280,23 +291,12 @@ void Raytracer::updateDescriptorSets() {
 		.setBufferInfo(materialsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
-	std::vector<vk::DescriptorImageInfo> textureDescriptors;
-	textureDescriptors.reserve(scene.texturePool.size());
-	for (const auto& texture : scene.texturePool) {
-		textureDescriptors.push_back(texture->getDescriptor());
-	}
-	auto& textureWrites = vk::WriteDescriptorSet{}
-		.setDstSet(descriptorSet)
-		.setDstBinding(5u)
-		.setImageInfo(textureDescriptors)
-		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
-
 	auto pointLightsBufferDescriptor = vk::DescriptorBufferInfo{}
 		.setBuffer(**scene.pointLightsBuffer)
 		.setRange(scene.pointLightsBuffer->bufferCI.size);
 	auto pointLightsBufferWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
-		.setDstBinding(6u)
+		.setDstBinding(5u)
 		.setBufferInfo(pointLightsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
@@ -305,19 +305,30 @@ void Raytracer::updateDescriptorSets() {
 		.setRange(scene.directionalLightsBuffer->bufferCI.size);
 	auto directionalLightsBufferWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
-		.setDstBinding(7u)
+		.setDstBinding(6u)
 		.setBufferInfo(directionalLightsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
+	std::vector<vk::DescriptorImageInfo> textureDescriptors;
+	textureDescriptors.reserve(scene.texturePool.size());
+	for (const auto& texture : scene.texturePool) {
+		textureDescriptors.push_back(texture->getDescriptor());
+	}
+	auto& textureWrites = vk::WriteDescriptorSet{}
+		.setDstSet(descriptorSet)
+		.setDstBinding(7u)
+		.setImageInfo(textureDescriptors)
+		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+
 	descriptorWrites = { accelerationStructureWrite, resultImageWrite, uniformBufferWrite,
-						 geometryInfoBufferWrite, materialsBufferWrite, textureWrites,
-						 pointLightsBufferWrite, directionalLightsBufferWrite
+						 geometryInfoBufferWrite, materialsBufferWrite, 
+						 pointLightsBufferWrite, directionalLightsBufferWrite, textureWrites
 	};
 	device->updateDescriptorSets(descriptorWrites, nullptr);
 }
 
-void Raytracer::recordCommandbuffer(uint32_t idx) {
-	auto& cmdBuffer = raytraceCmdBuffers[idx];
+void Raytracer::recordCommandbuffer(uint32_t frameIdx) {
+	auto& cmdBuffer = raytraceCmdBuffers[frameIdx];
 	cmdBuffer->reset();
 	cmdBuffer->begin(vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
@@ -352,10 +363,42 @@ void Raytracer::recordCommandbuffer(uint32_t idx) {
 	cmdBuffer->end();
 }
 
-void Raytracer::drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
+void Raytracer::handleResize() {
+	Application::handleResize();
+
+	// Resize storage image
+	auto storageImageCI = vk::ImageCreateInfo{}
+		.setImageType(vk::ImageType::e2D)
+		.setFormat(vk::Format::eB8G8R8A8Unorm)
+		.setExtent(vk::Extent3D{ width, height, 1u })
+		.setMipLevels(1u)
+		.setArrayLayers(1u)
+		.setSamples(vk::SampleCountFlagBits::e1)
+		.setTiling(vk::ImageTiling::eOptimal)
+		.setUsage(vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc)
+		.setInitialLayout(vk::ImageLayout::eUndefined);
+	storageImage = std::make_unique<Image>(device, *dmm, *rth, storageImageCI, nullptr, vk::ImageLayout::eUndefined, MemoryStorage::DevicePersistent);
+
+	auto storageImViewCI = vk::ImageViewCreateInfo{}
+		.setViewType(vk::ImageViewType::e2D)
+		.setFormat(vk::Format::eB8G8R8A8Unorm)
+		.setSubresourceRange(vk::ImageSubresourceRange{}
+							 .setAspectMask(vk::ImageAspectFlagBits::eColor)
+							 .setBaseMipLevel(0u)
+							 .setLevelCount(1u)
+							 .setBaseArrayLayer(0u)
+							 .setLayerCount(1u))
+		.setImage(**storageImage);
+	storageImageView = device->createImageViewUnique(storageImViewCI);
+	updateDescriptorSets();
+	sampleCount = 0u;
+}
+
+void Raytracer::drawFrame(uint32_t imageidx, uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
 						  vk::SharedFence frameFinishedFence) {
-	std::array matrices = { camera.getViewInv(), camera.getProjectionInv() };
-	uniformBuffer->write(vk::ArrayProxyNoTemporaries{ sizeof(matrices), (char*)matrices.data() });
+	if (camera.positionChanged || camera.directionChanged) sampleCount = 0u;
+	UniformData uniformData = { sampleCount, camera.getViewInv(), camera.getProjectionInv() };
+	uniformBuffer->write(vk::ArrayProxyNoTemporaries{ sizeof(UniformData), (char*)&uniformData });
 
 	recordCommandbuffer(frameIdx);
 	raytraceFinishedSemaphore[frameIdx] = vk::SharedHandle(device->createSemaphore({}), device);
@@ -379,10 +422,10 @@ void Raytracer::drawFrame(uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSe
 						   .setLayerCount(1u)
 						   .setMipLevel(0u))
 		.setExtent(vk::Extent3D{ width, height, 1u });
+	SyncInfo storageToSwapchainSI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
+	storageImage->copyTo(swapchainImages[imageidx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainSI));
 
-	SyncInfo storageToSwapchainCI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
-	storageImage->copyTo(swapchainImages[frameIdx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainCI));
-
+	sampleCount++;
 }
 
 }

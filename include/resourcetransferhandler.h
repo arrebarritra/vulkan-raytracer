@@ -26,7 +26,7 @@ public:
 	const void copy(vk::Buffer srcBuffer, vk::Image dstImage, vk::BufferImageCopy bfrImgCp, vk::ImageLayout dstLayout, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource = nullptr);
 	const void copy(vk::Image srcImage, vk::Buffer dstBuffer, vk::BufferImageCopy bfrImgCp, SyncInfo si, std::unique_ptr<ManagedResource> stagedResource = nullptr);
 	const void freeCompletedTransfers();
-	const void flushPendingTransfers(vk::ArrayProxyNoTemporaries<vk::SharedFence> fences);
+	const void flushPendingTransfers(vk::ArrayProxy<vk::SharedFence> fences);
 	const void flushPendingTransfers();
 
 private:

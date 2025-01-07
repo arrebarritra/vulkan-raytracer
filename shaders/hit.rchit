@@ -7,7 +7,6 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 
-
 struct Vertex {
     vec3 pos, normal;
     vec4 tangent;
@@ -48,22 +47,24 @@ layout(buffer_reference, scalar) buffer Vertices { Vertex vertices[]; };
 layout(buffer_reference, scalar) buffer Indices { uint32_t indices[]; };
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 2, set = 0) uniform CameraProperties {
+layout(binding = 2, set = 0, scalar) uniform UniformData {
+    uint sampleCount;
 	mat4 viewInverse;
 	mat4 projInverse;
 } cam;
 layout(binding = 3, set = 0, scalar) readonly buffer GeometryInfos { GeometryInfo geometryInfos[]; };
 layout(binding = 4, set = 0, scalar) readonly buffer Materials { Material materials[]; };
-layout(binding = 5, set = 0) uniform sampler2D textures[];
 
-layout(binding = 6, set = 0, scalar) readonly buffer PointLights { 
+layout(binding = 5, set = 0, scalar) readonly buffer PointLights { 
     uint numPointLights;
     PointLight pointLights[]; 
 };
-layout(binding = 7, set = 0, scalar) readonly buffer DirectionalLights { 
+layout(binding = 6, set = 0, scalar) readonly buffer DirectionalLights { 
     uint numDirectionalLights;
     DirectionalLight directionalLights[]; 
 };
+
+layout(binding = 7, set = 0) uniform sampler2D textures[];
 
 layout(location = 0) rayPayloadInEXT vec3 hitValue;
 layout(location = 1) rayPayloadEXT bool shadow;

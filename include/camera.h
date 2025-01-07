@@ -20,7 +20,7 @@ public:
 	glm::vec3 position, direction, up;
 	float near, far, fov, aspect;
 	float speed, sensitivity;
-
+	bool positionChanged = false, directionChanged = false;
 };
 
 }

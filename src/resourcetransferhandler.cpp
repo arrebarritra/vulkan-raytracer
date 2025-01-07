@@ -5,18 +5,11 @@ ResourceTransferHandler::ResourceTransferHandler(vk::SharedDevice device, std::t
 	: device(device), transferQueue(transferQueue)
 {
 	auto cmdPoolCI = vk::CommandPoolCreateInfo{}
-		.setQueueFamilyIndex(std::get<uint32_t>(transferQueue))
-		.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+		.setQueueFamilyIndex(std::get<uint32_t>(transferQueue));
 	commandPool = device->createCommandPoolUnique(cmdPoolCI);
-
-	auto buffersTmp = device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
-														   .setCommandPool(*commandPool)
-														   .setCommandBufferCount(1u)
-														   .setLevel(vk::CommandBufferLevel::ePrimary));
 }
 
 const void ResourceTransferHandler::submit(vk::CommandBuffer cmdBuffer, SyncInfo si) {
-	freeCompletedTransfers();
 	// Create submit info
 	std::vector<vk::PipelineStageFlags> submitWaitDstStageMask(si.waitSemaphores.size());
 	std::vector<vk::Semaphore> submitWaitSemaphores(si.waitSemaphores.size());
@@ -39,8 +32,12 @@ const void ResourceTransferHandler::copy(vk::Buffer srcBuffer, vk::Buffer dstBuf
 	auto cmdBuffer = std::move(device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
 																	.setCommandPool(*commandPool)
 																	.setCommandBufferCount(1u)
-																	.setLevel(vk::CommandBufferLevel::ePrimary))[0]);
+																	.setLevel(vk::CommandBufferLevel::ePrimary)).front());
+	cmdBuffer->begin(vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+
 	cmdBuffer->copyBuffer(srcBuffer, dstBuffer, bfrCp);
+	cmdBuffer->end();
+
 	submit(*cmdBuffer, si);
 	pendingTransfers.emplace(*si.fence, std::make_tuple(std::move(cmdBuffer), si, std::move(stagedResource)));
 }
@@ -49,7 +46,8 @@ const void ResourceTransferHandler::copy(vk::Image srcImage, vk::Image dstImage,
 	auto cmdBuffer = std::move(device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
 																	.setCommandPool(*commandPool)
 																	.setCommandBufferCount(1u)
-																	.setLevel(vk::CommandBufferLevel::ePrimary))[0]);
+																	.setLevel(vk::CommandBufferLevel::ePrimary)).front());
+	cmdBuffer->begin(vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
 	// Set up pipeline barriers for image transitions
 	auto srcPreImMemBarrier = vk::ImageMemoryBarrier{}
@@ -84,6 +82,7 @@ const void ResourceTransferHandler::copy(vk::Image srcImage, vk::Image dstImage,
 		cmdBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eBottomOfPipe,
 								   {}, {}, {}, dstPostImMemBarrier);
 	}
+	cmdBuffer->end();
 
 	submit(*cmdBuffer, si);
 	pendingTransfers.emplace(*si.fence, std::make_tuple(std::move(cmdBuffer), si, std::move(stagedResource)));
@@ -93,7 +92,8 @@ const void ResourceTransferHandler::copy(vk::Buffer srcBuffer, vk::Image dstImag
 	auto cmdBuffer = std::move(device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
 																	.setCommandPool(*commandPool)
 																	.setCommandBufferCount(1u)
-																	.setLevel(vk::CommandBufferLevel::ePrimary))[0]);
+																	.setLevel(vk::CommandBufferLevel::ePrimary)).front());
+	cmdBuffer->begin(vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
 	// Set up pipeline barriers for image transition
 	auto dstImMemBarrier = vk::ImageMemoryBarrier{}
@@ -119,6 +119,7 @@ const void ResourceTransferHandler::copy(vk::Buffer srcBuffer, vk::Image dstImag
 		cmdBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eBottomOfPipe,
 								   {}, {}, {}, dstPreImMemBarrier);
 	}
+	cmdBuffer->end();
 
 	submit(*cmdBuffer, si);
 	pendingTransfers.emplace(*si.fence, std::make_tuple(std::move(cmdBuffer), si, std::move(stagedResource)));
@@ -128,7 +129,9 @@ const void ResourceTransferHandler::copy(vk::Image srcImage, vk::Buffer dstBuffe
 	auto cmdBuffer = std::move(device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
 																	.setCommandPool(*commandPool)
 																	.setCommandBufferCount(1u)
-																	.setLevel(vk::CommandBufferLevel::ePrimary))[0]);
+																	.setLevel(vk::CommandBufferLevel::ePrimary)).front());
+	cmdBuffer->begin(vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+
 	// Set up pipeline barriers for image transition
 	auto srcImMemBarrier = vk::ImageMemoryBarrier{}
 		.setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
@@ -141,6 +144,7 @@ const void ResourceTransferHandler::copy(vk::Image srcImage, vk::Buffer dstBuffe
 							   {}, {}, {}, srcImMemBarrier);
 
 	cmdBuffer->copyImageToBuffer(srcImage, vk::ImageLayout::eTransferSrcOptimal, dstBuffer, bfrImgCp);
+	cmdBuffer->end();
 
 	submit(*cmdBuffer, si);
 	pendingTransfers.emplace(*si.fence, std::make_tuple(std::move(cmdBuffer), si, std::move(stagedResource)));
@@ -155,24 +159,28 @@ const void ResourceTransferHandler::freeCompletedTransfers() {
 	}
 }
 
-const void ResourceTransferHandler::flushPendingTransfers(vk::ArrayProxyNoTemporaries<vk::SharedFence> fences) {
-	std::vector<vk::Fence> fenceHandles;
-	fenceHandles.reserve(pendingTransfers.size());
-	std::transform(fences.begin(), fences.end(), std::back_inserter(fenceHandles),
-				   [](const vk::SharedFence& fence) { return *fence; });
-	CHECK_VULKAN_RESULT(device->waitForFences(fenceHandles, vk::True, std::numeric_limits<uint64_t>::max()));
-
-	for (const auto& fence : fences)
-		pendingTransfers.erase(*fence);
+const void ResourceTransferHandler::flushPendingTransfers(vk::ArrayProxy<vk::SharedFence> fences) {
+	if (fences.size() > 0) {
+		std::vector<vk::Fence> fenceHandles;
+		fenceHandles.reserve(pendingTransfers.size());
+		std::transform(fences.begin(), fences.end(), std::back_inserter(fenceHandles),
+					   [](const vk::SharedFence& fence) { return *fence; });
+		CHECK_VULKAN_RESULT(device->waitForFences(fenceHandles, vk::True, std::numeric_limits<uint64_t>::max()));
+		
+		for (const auto& fence : fences)
+			pendingTransfers.erase(*fence);
+	}
 }
 
 const void ResourceTransferHandler::flushPendingTransfers() {
-	std::vector<vk::Fence> fences;
-	fences.reserve(pendingTransfers.size());
-	std::transform(pendingTransfers.begin(), pendingTransfers.end(), std::back_inserter(fences),
-				   [](const auto& transferInfo) { return transferInfo.first; });
-	CHECK_VULKAN_RESULT(device->waitForFences(fences, vk::True, std::numeric_limits<uint64_t>::max()));
-	pendingTransfers.clear();
+	if (pendingTransfers.size() > 0) {
+		std::vector<vk::Fence> fences;
+		fences.reserve(pendingTransfers.size());
+		std::transform(pendingTransfers.begin(), pendingTransfers.end(), std::back_inserter(fences),
+					   [](const auto& transferInfo) { return transferInfo.first; });
+		CHECK_VULKAN_RESULT(device->waitForFences(fences, vk::True, std::numeric_limits<uint64_t>::max()));
+		pendingTransfers.clear();
+	}
 }
 
 }
