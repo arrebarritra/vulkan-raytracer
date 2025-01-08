@@ -22,7 +22,7 @@ private:
 
 	static const std::vector<const char*> raytracingRequiredExtensions;
 	static const void* raytracingFeaturesChain;
-	static const uint32_t FRAMES_IN_FLIGHT = 3u;
+	static const uint32_t FRAMES_IN_FLIGHT = 1u;
 
 	uint32_t sampleCount = 0u;
 

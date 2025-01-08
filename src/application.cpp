@@ -260,7 +260,7 @@ void Application::createSwapchain() {
 	auto swapchainCI = vk::SwapchainCreateInfoKHR{}
 		.setSurface(*surface)
 		.setImageExtent(vk::Extent2D{ width,height })
-		.setMinImageCount(framesInFlight)
+		.setMinImageCount(std::max(physicalDevice.getSurfaceCapabilitiesKHR(*surface).minImageCount, framesInFlight))
 		.setImageArrayLayers(1u)
 		.setImageUsage(swapchainImUsage)
 		.setImageFormat(swapchainFormat.format)

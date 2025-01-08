@@ -225,9 +225,9 @@ void Raytracer::createDescriptorSets() {
 							 vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
-							 vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, textureCount},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
-							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1}
+							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
+							 vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, textureCount}
 	};
 
 	auto descriptorPoolCI = vk::DescriptorPoolCreateInfo{}
@@ -403,6 +403,8 @@ void Raytracer::drawFrame(uint32_t imageidx, uint32_t frameIdx, vk::SharedSemaph
 	recordCommandbuffer(frameIdx);
 	raytraceFinishedSemaphore[frameIdx] = vk::SharedHandle(device->createSemaphore({}), device);
 
+	LOG_INFO("Sample count %d", sampleCount);
+
 	auto waitDstStage = vk::PipelineStageFlags(vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 	auto signalSemaphore = *raytraceFinishedSemaphore[frameIdx];
 	auto submitInfo = vk::SubmitInfo{}
@@ -426,7 +428,6 @@ void Raytracer::drawFrame(uint32_t imageidx, uint32_t frameIdx, vk::SharedSemaph
 		SyncInfo storageToSwapchainSI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
 		storageImage->copyTo(swapchainImages[imageidx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainSI));
 	}
-
 	sampleCount++;
 }
 
