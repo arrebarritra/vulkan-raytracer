@@ -48,23 +48,22 @@ layout(buffer_reference, scalar) buffer Indices { uint32_t indices[]; };
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 2, set = 0, scalar) uniform UniformData {
-    uint sampleCount;
 	mat4 viewInverse;
 	mat4 projInverse;
 } cam;
-layout(binding = 3, set = 0, scalar) readonly buffer GeometryInfos { GeometryInfo geometryInfos[]; };
-layout(binding = 4, set = 0, scalar) readonly buffer Materials { Material materials[]; };
+layout(binding = 4, set = 0, scalar) readonly buffer GeometryInfos { GeometryInfo geometryInfos[]; };
+layout(binding = 5, set = 0, scalar) readonly buffer Materials { Material materials[]; };
 
-layout(binding = 5, set = 0, scalar) readonly buffer PointLights { 
+layout(binding = 6, set = 0, scalar) readonly buffer PointLights { 
     uint numPointLights;
     PointLight pointLights[]; 
 };
-layout(binding = 6, set = 0, scalar) readonly buffer DirectionalLights { 
+layout(binding = 7, set = 0, scalar) readonly buffer DirectionalLights { 
     uint numDirectionalLights;
     DirectionalLight directionalLights[]; 
 };
 
-layout(binding = 7, set = 0) uniform sampler2D textures[];
+layout(binding = 8, set = 0) uniform sampler2D textures[];
 
 layout(location = 0) rayPayloadInEXT vec3 hitValue;
 layout(location = 1) rayPayloadEXT bool shadow;
@@ -108,6 +107,7 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out GeometryInfo geometryInfo, ou
         hitInfo.bitangent = normalize(hitInfo.bitangent);
         hitInfo.normal = mat3(hitInfo.tangent, hitInfo.bitangent, hitInfo.normal) * normalize(texture(textures[nonuniformEXT(material.normalTexIdx)], hitInfo.uv0).rgb * 2.0 - 1.0);
     }
+    
 	vec3 origin = vec3(cam.viewInverse * vec4(0,0,0,1));
     hitInfo.normal = sign(dot(origin - hitInfo.pos, hitInfo.normal)) * hitInfo.normal;
     
@@ -165,15 +165,14 @@ void main() {
             lightFactor += k_d * light.colour;
         }
     }
-
-    // Add directional light if there are none
+    // Add directional light if there are no lights
     if (numPointLights + numDirectionalLights == 0) {
         DirectionalLight light;
         light.colour = vec3(1.0, 0.8, 0.7);
         light.direction = normalize(vec3(0.1, -1.0, 0.0));
 
         shadow = true;
-        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, light.direction, 10000.0, 1);
+        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, -light.direction, 10000.0, 1);
         if (!shadow) {
             float k_d = max(dot(hitInfo.normal, light.direction), 0.0);
             lightFactor += k_d * light.colour;

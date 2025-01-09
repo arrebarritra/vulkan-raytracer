@@ -14,17 +14,19 @@ public:
 	~Raytracer() = default;
 
 private:
-
-	struct UniformData {
-		uint32_t sampleCount;
+	struct CameraProperties {
 		glm::mat4 viewInverse, projInverse;
 	};
+	CameraProperties camProps;
+
+	struct PathTracingProperties {
+		uint32_t sampleCount, maxRayDepth = 5u;
+	};
+	PathTracingProperties pathTracingProps;
 
 	static const std::vector<const char*> raytracingRequiredExtensions;
 	static const void* raytracingFeaturesChain;
 	static const uint32_t FRAMES_IN_FLIGHT = 1u;
-
-	uint32_t sampleCount = 0u;
 
 	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR raytracingPipelineProperties;
 
@@ -35,7 +37,7 @@ private:
 	std::unique_ptr<AccelerationStructure> as;
 	std::unique_ptr<Image> storageImage;
 	vk::UniqueImageView storageImageView;
-	std::unique_ptr<Buffer> uniformBuffer;
+	std::unique_ptr<Buffer> uniformCameraProps, uniformPathTracingProps;
 
 	// Ray tracing pipeline
 	vk::UniqueDescriptorSetLayout descriptorSetLayout;
@@ -46,7 +48,6 @@ private:
 
 	vk::UniqueDescriptorPool descriptorPool;
 	vk::DescriptorSet descriptorSet;
-	std::vector<vk::WriteDescriptorSet> descriptorWrites;
 
 	std::vector<std::unique_ptr<Shader>> raygenShaders, missShaders, hitShaders;
 

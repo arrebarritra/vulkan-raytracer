@@ -44,7 +44,7 @@ Raytracer::Raytracer()
 	raytraceCmdBuffers = device->allocateCommandBuffersUnique(cmdBufferAI);
 
 	// Create acceleration structure
-	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"sponzasmall/Sponza.gltf");
+	scene.loadModel(nullptr, glm::mat4(1.0f), RESOURCE_DIR"CornellBox-Original.gltf");
 	rth->flushPendingTransfers();
 
 	//CHECK_VULKAN_RESULT(device->waitForFences({ *scene.meshPool.back().vertices->writeFinishedFence, *scene.meshPool.back().indices->writeFinishedFence },
@@ -77,11 +77,18 @@ Raytracer::Raytracer()
 		.setImage(**storageImage);
 	storageImageView = device->createImageViewUnique(storageImViewCI);
 
-	UniformData uniformData{ sampleCount, camera.getViewInv(), camera.getProjectionInv() };
-	auto bufferCI = vk::BufferCreateInfo{}
-		.setSize(sizeof(UniformData))
+	// Upload uniforms
+	camProps = CameraProperties{ camera.getViewInv(), camera.getProjectionInv() };
+	auto uniformCameraPropsCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(CameraProperties))
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
-	uniformBuffer = std::make_unique<Buffer>(device, *dmm, *rth, bufferCI, vk::ArrayProxyNoTemporaries{ sizeof(UniformData), (char*)&uniformData }, MemoryStorage::DeviceDynamic);
+	uniformCameraProps = std::make_unique<Buffer>(device, *dmm, *rth, uniformCameraPropsCI, vk::ArrayProxyNoTemporaries{ sizeof(CameraProperties), (char*)&camProps }, MemoryStorage::DeviceDynamic);
+
+	pathTracingProps.sampleCount = 0u;
+	auto uniformPathTracingPropsCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(PathTracingProperties))
+		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
+	uniformPathTracingProps = std::make_unique<Buffer>(device, *dmm, *rth, uniformPathTracingPropsCI, vk::ArrayProxyNoTemporaries{ sizeof(PathTracingProperties), (char*)&pathTracingProps }, MemoryStorage::DeviceDynamic);
 
 	// Create resources
 	createRaytracingPipeline();
@@ -111,41 +118,47 @@ void Raytracer::createRaytracingPipeline() {
 		.setDescriptorType(vk::DescriptorType::eStorageImage)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
-	auto uniformBufferLB = vk::DescriptorSetLayoutBinding{}
+	auto uniformCameraPropsLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(2u)
 		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR);
-	auto geometryInfoBufferLB = vk::DescriptorSetLayoutBinding{}
+	auto uniformPathTracingPropsLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(3u)
-		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
+		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto materialsBufferLB = vk::DescriptorSetLayoutBinding{}
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+	auto geometryInfoBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(4u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto pointLightsBufferLB = vk::DescriptorSetLayoutBinding{}
+	auto materialsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(5u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto directionalLightsBufferLB = vk::DescriptorSetLayoutBinding{}
+	auto pointLightsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(6u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+	auto directionalLightsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(7u)
+		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
+		.setDescriptorCount(1u)
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+		.setBinding(8u)
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 		.setDescriptorCount(static_cast<uint32_t>(scene.texturePool.size()))
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	std::array layoutBindings = { accelerationStructureLB, resultImageLB, uniformBufferLB,
-									geometryInfoBufferLB, materialsBufferLB,
+	std::array layoutBindings = { accelerationStructureLB, resultImageLB, uniformCameraPropsLB,
+									uniformPathTracingPropsLB, geometryInfoBufferLB, materialsBufferLB,
 									pointLightsBufferLB, directionalLightsBufferLB, textureSamplersLB };
 
-	std::array<vk::DescriptorBindingFlagsEXT, 8> descriptorBindingFlags = {
+	std::array<vk::DescriptorBindingFlagsEXT, 9> descriptorBindingFlags = {
+		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
@@ -223,20 +236,19 @@ void Raytracer::createDescriptorSets() {
 	std::array poolSizes = { vk::DescriptorPoolSize{vk::DescriptorType::eAccelerationStructureKHR, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 1},
+							 vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
-							 vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, textureCount}
+							 vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, 1}
 	};
 
 	auto descriptorPoolCI = vk::DescriptorPoolCreateInfo{}
 		.setPoolSizes(poolSizes)
 		.setMaxSets(1u);
 	descriptorPool = device->createDescriptorPoolUnique(descriptorPoolCI);
-
 	auto variableDescriptorCountAI = vk::DescriptorSetVariableDescriptorCountAllocateInfoEXT{}.setDescriptorCounts(textureCount);
-
 	auto descriptorSetAI = vk::DescriptorSetAllocateInfo{}
 		.setPNext(&variableDescriptorCountAI)
 		.setDescriptorPool(*descriptorPool)
@@ -264,13 +276,22 @@ void Raytracer::updateDescriptorSets() {
 		.setImageInfo(storageImageDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageImage);
 
-	auto uniformBufferDescriptor = vk::DescriptorBufferInfo{}
-		.setBuffer(**uniformBuffer)
-		.setRange(uniformBuffer->bufferCI.size);
-	auto uniformBufferWrite = vk::WriteDescriptorSet{}
+	auto uniformCameraPropsDescriptor = vk::DescriptorBufferInfo{}
+		.setBuffer(**uniformCameraProps)
+		.setRange(uniformCameraProps->bufferCI.size);
+	auto uniformCameraPropsWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
 		.setDstBinding(2u)
-		.setBufferInfo(uniformBufferDescriptor)
+		.setBufferInfo(uniformCameraPropsDescriptor)
+		.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+
+	auto uniformPathTracingPropsDescriptor = vk::DescriptorBufferInfo{}
+		.setBuffer(**uniformPathTracingProps)
+		.setRange(uniformPathTracingProps->bufferCI.size);
+	auto uniformPathTracingPropsWrite = vk::WriteDescriptorSet{}
+		.setDstSet(descriptorSet)
+		.setDstBinding(3u)
+		.setBufferInfo(uniformPathTracingPropsDescriptor)
 		.setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
 	auto geometryInfoBufferDescriptor = vk::DescriptorBufferInfo{}
@@ -278,7 +299,7 @@ void Raytracer::updateDescriptorSets() {
 		.setRange(scene.geometryInfoBuffer->bufferCI.size);
 	auto geometryInfoBufferWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
-		.setDstBinding(3u)
+		.setDstBinding(4u)
 		.setBufferInfo(geometryInfoBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
@@ -287,7 +308,7 @@ void Raytracer::updateDescriptorSets() {
 		.setRange(scene.materialsBuffer->bufferCI.size);
 	auto materialsBufferWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
-		.setDstBinding(4u)
+		.setDstBinding(5u)
 		.setBufferInfo(materialsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
@@ -296,7 +317,7 @@ void Raytracer::updateDescriptorSets() {
 		.setRange(scene.pointLightsBuffer->bufferCI.size);
 	auto pointLightsBufferWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
-		.setDstBinding(5u)
+		.setDstBinding(6u)
 		.setBufferInfo(pointLightsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
@@ -305,25 +326,30 @@ void Raytracer::updateDescriptorSets() {
 		.setRange(scene.directionalLightsBuffer->bufferCI.size);
 	auto directionalLightsBufferWrite = vk::WriteDescriptorSet{}
 		.setDstSet(descriptorSet)
-		.setDstBinding(6u)
+		.setDstBinding(7u)
 		.setBufferInfo(directionalLightsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
-	std::vector<vk::DescriptorImageInfo> textureDescriptors;
-	textureDescriptors.reserve(scene.texturePool.size());
-	for (const auto& texture : scene.texturePool) {
-		textureDescriptors.push_back(texture->getDescriptor());
-	}
-	auto& textureWrites = vk::WriteDescriptorSet{}
-		.setDstSet(descriptorSet)
-		.setDstBinding(7u)
-		.setImageInfo(textureDescriptors)
-		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
-
-	descriptorWrites = { accelerationStructureWrite, resultImageWrite, uniformBufferWrite,
-						 geometryInfoBufferWrite, materialsBufferWrite,
-						 pointLightsBufferWrite, directionalLightsBufferWrite, textureWrites
+	std::vector<vk::WriteDescriptorSet> descriptorWrites = { accelerationStructureWrite, resultImageWrite, uniformCameraPropsWrite,
+						 uniformPathTracingPropsWrite,geometryInfoBufferWrite, materialsBufferWrite,
+						 pointLightsBufferWrite, directionalLightsBufferWrite
 	};
+
+	if (scene.texturePool.size() > 0) {
+		std::vector<vk::DescriptorImageInfo> textureDescriptors;
+		textureDescriptors.reserve(scene.texturePool.size());
+		for (const auto& texture : scene.texturePool) {
+			textureDescriptors.push_back(texture->getDescriptor());
+		}
+		auto& textureWrites = vk::WriteDescriptorSet{}
+			.setDstSet(descriptorSet)
+			.setDstBinding(8u)
+			.setImageInfo(textureDescriptors)
+			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+
+		descriptorWrites.push_back(textureWrites);
+	}
+
 	device->updateDescriptorSets(descriptorWrites, nullptr);
 }
 
@@ -391,19 +417,18 @@ void Raytracer::handleResize() {
 		.setImage(**storageImage);
 	storageImageView = device->createImageViewUnique(storageImViewCI);
 	updateDescriptorSets();
-	sampleCount = 0u;
+	pathTracingProps.sampleCount = 0u;
 }
 
 void Raytracer::drawFrame(uint32_t imageidx, uint32_t frameIdx, vk::SharedSemaphore imageAcquiredSemaphore, vk::SharedSemaphore renderFinishedSemaphore,
 						  vk::SharedFence frameFinishedFence) {
-	if (camera.positionChanged || camera.directionChanged) sampleCount = 0u;
-	UniformData uniformData = { sampleCount, camera.getViewInv(), camera.getProjectionInv() };
-	uniformBuffer->write(vk::ArrayProxyNoTemporaries{ sizeof(UniformData), (char*)&uniformData });
+	if (camera.positionChanged || camera.directionChanged) pathTracingProps.sampleCount = 0u;
+	camProps = CameraProperties{ camera.getViewInv(), camera.getProjectionInv() };
+	uniformCameraProps->write(vk::ArrayProxyNoTemporaries{ sizeof(CameraProperties), (char*)&camProps });
+	uniformPathTracingProps->write(vk::ArrayProxyNoTemporaries{ sizeof(PathTracingProperties), (char*)&pathTracingProps });
 
 	recordCommandbuffer(frameIdx);
 	raytraceFinishedSemaphore[frameIdx] = vk::SharedHandle(device->createSemaphore({}), device);
-
-	LOG_INFO("Sample count %d", sampleCount);
 
 	auto waitDstStage = vk::PipelineStageFlags(vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 	auto signalSemaphore = *raytraceFinishedSemaphore[frameIdx];
@@ -428,7 +453,7 @@ void Raytracer::drawFrame(uint32_t imageidx, uint32_t frameIdx, vk::SharedSemaph
 		SyncInfo storageToSwapchainSI{ frameFinishedFence, { imageAcquiredSemaphore, raytraceFinishedSemaphore[frameIdx] }, { renderFinishedSemaphore } };
 		storageImage->copyTo(swapchainImages[imageidx], imgCp, vk::ImageLayout::ePresentSrcKHR, std::move(storageToSwapchainSI));
 	}
-	sampleCount++;
+	pathTracingProps.sampleCount++;
 }
 
 }

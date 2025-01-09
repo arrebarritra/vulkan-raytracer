@@ -3,18 +3,31 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_debug_printf : enable
 
+
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D image;
-layout(binding = 2, set = 0, scalar) uniform UniformData {
-	uint sampleCount;
+layout(binding = 2, set = 0, scalar) uniform CameraProperties {
 	mat4 viewInverse;
 	mat4 projInverse;
 } cam;
 
+layout(binding = 3, set = 0, scalar) uniform PathTracingProperties{
+	uint sampleCount;
+	uint maxRayDepth;
+} pathTracing;
+
+struct payload {
+	vec3 colour;
+};
 layout(location = 0) rayPayloadEXT vec3 hitValue;
 
+#include "random.glsl"
+
 void main() {
-	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
+	uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount);
+	vec2 jitter = vec2(rnd(seed), rnd(seed));
+
+	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + jitter;
 	const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
 	vec2 d = inUV * 2.0 - 1.0;
 	d.y = -d.y;
@@ -26,12 +39,10 @@ void main() {
 	float tmin = 0.001;
 	float tmax = 1000.0;
 
-    hitValue = vec3(0.0);
-
     traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, tmin, direction.xyz, tmax, 0);
 
-	float weight = 1.0 / float(cam.sampleCount + 1);
+	float weight = 1.0 / float(pathTracing.sampleCount + 1);
 	vec3 prevVal = imageLoad(image, ivec2(gl_LaunchIDEXT.xy)).xyz;
-	vec3 weightedValue = hitValue * weight + prevVal * (1.0 - weight);
+	vec3 weightedValue = mix(prevVal, hitValue, weight);
 	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(weightedValue, 1.0));
 }

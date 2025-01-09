@@ -38,16 +38,19 @@ file(GLOB SHADER_FILES CONFIGURE_DEPENDS
   "${SHADER_SOURCE_DIR}/*.rmiss"
   "${SHADER_SOURCE_DIR}/*.rint"
 )
+file(GLOB GLSL_FILES CONFIGURE_DEPENDS
+  "${SHADER_SOURCE_DIR}/*.glsl"
+)
 set_source_files_properties(${SHADER_FILES} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 source_group("Source files" FILES ${SOURCE_FILES})
 source_group("Header files" FILES ${HEADER_FILES})
-source_group("Shader files" FILES ${SHADER_FILES})
+source_group("Shader files" FILES ${SHADER_FILES} ${GLSL_FILES})
 
 include_directories(PRIVATE ${INCLUDE_DIR})
 include_directories(PRIVATE "${EXTERNAL_FOLDER}/stb")
 include_directories("${EXTERNAL_FOLDER}/tinygltf")
-add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES})
+add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES} ${GLSL_FILES})
 
 string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
 target_compile_definitions(${PROJECT_NAME}
