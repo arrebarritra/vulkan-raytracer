@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vulkan_headers.h>
 
 #include <filesystem>

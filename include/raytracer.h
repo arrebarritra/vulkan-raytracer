@@ -5,6 +5,7 @@
 #include <mesh.h>
 #include <accelerationstructure.h>
 #include <shader.h>
+#include <raytracingshaders.h>
 
 namespace vkrt {
 
@@ -20,7 +21,7 @@ private:
 	CameraProperties camProps;
 
 	struct PathTracingProperties {
-		uint32_t sampleCount, maxRayDepth = 5u;
+		uint32_t sampleCount, maxRayDepth = 10u;
 	};
 	PathTracingProperties pathTracingProps;
 
@@ -35,25 +36,24 @@ private:
 
 	Scene scene;
 	std::unique_ptr<AccelerationStructure> as;
-	std::unique_ptr<Image> storageImage;
-	vk::UniqueImageView storageImageView;
+	std::unique_ptr<Image> accumulationImage, outputImage;
+	vk::UniqueImageView accumulationImageView, outputImageView;
 	std::unique_ptr<Buffer> uniformCameraProps, uniformPathTracingProps;
 
 	// Ray tracing pipeline
 	vk::UniqueDescriptorSetLayout descriptorSetLayout;
 	vk::UniquePipelineLayout raytracingPipelineLayout;
 	vk::UniquePipeline raytracingPipeline;
-	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
+	std::unique_ptr<RaytracingShaders> raytracingShaders;
 	std::unique_ptr<Buffer> raygenShaderBindingTable, missShaderBindingTable, hitShaderBindingTable;
 
 	vk::UniqueDescriptorPool descriptorPool;
 	vk::DescriptorSet descriptorSet;
 
-	std::vector<std::unique_ptr<Shader>> raygenShaders, missShaders, hitShaders;
-
 	std::array<vk::SharedSemaphore, FRAMES_IN_FLIGHT> raytraceFinishedSemaphore;
 
 	void createCommandPools() override;
+	void createImages();
 	void createRaytracingPipeline();
 	void createShaderBindingTable();
 	void createDescriptorSets();

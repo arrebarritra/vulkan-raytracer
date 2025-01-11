@@ -13,14 +13,14 @@ SceneObject::SceneObject(SceneObject* parent, glm::mat4& transform, int meshIdx)
 Scene::Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth)
 	: device(device), dmm(dmm), rth(rth), root(nullptr, glm::mat4(1.0f), -1), objectCount(0u), maxDepth(1u) {}
 
-SceneObject& Scene::addObject(SceneObject* parent, glm::mat4& transform, int meshIdx) {
+SceneObject& Scene::addNode(SceneObject* parent, glm::mat4& transform, int meshIdx) {
 	objectCount++;
-	auto& so = parent->children.emplace_back(parent ? parent : &root, transform, meshIdx);
+	auto& so = parent->children.emplace_back(parent, transform, meshIdx);
 	maxDepth = std::max(maxDepth, so.depth);
 	return so;
 }
 
-void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem::path path) {
+void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4& transform) {
 	LOG_INFO("Loading model %s", path.filename().string().c_str());
 	tinygltf::Model model;
 	tinygltf::TinyGLTF context;
@@ -35,6 +35,7 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 	LOG_INFO("Loading %d meshes", model.meshes.size());
 	uint32_t baseMeshOffset = meshPool.size();
 	uint32_t baseMaterialOffset = materials.size();
+	uint32_t baseTextureOffset = texturePool.size();
 	meshPool.reserve(meshPool.size() + model.meshes.size());
 	geometryInfos.reserve(geometryInfos.size() + model.meshes.size());
 	materials.reserve(materials.size() + model.materials.size());
@@ -56,13 +57,14 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 				const float* tangentsBuffer = nullptr;
 				size_t vertexCount = 0;
 
-				// Get buffer data for vertex normals
-				if (gltfPrimitive.attributes.find("POSITION") != gltfPrimitive.attributes.end()) {
+				{
+					assert(gltfPrimitive.attributes.find("POSITION") != gltfPrimitive.attributes.end());
 					const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("POSITION")->second];
 					const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
 					positionBuffer = reinterpret_cast<const float*>(&(model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
 					vertexCount = accessor.count;
 				}
+
 				// Get buffer data for vertex normals
 				if (gltfPrimitive.attributes.find("NORMAL") != gltfPrimitive.attributes.end()) {
 					const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("NORMAL")->second];
@@ -96,7 +98,7 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 					vertex.normal = glm::normalize(glm::vec3(normalsBuffer ? glm::make_vec3(&normalsBuffer[v * 3]) : glm::vec3(0.0f)));
 					vertex.uv0 = texCoordsBuffer0 ? glm::make_vec2(&texCoordsBuffer0[v * 2]) : glm::vec3(0.0f);
 					vertex.uv1 = texCoordsBuffer1 ? glm::make_vec2(&texCoordsBuffer1[v * 2]) : glm::vec3(0.0f);
-					vertex.tangent = tangentsBuffer ? glm::make_vec4(&tangentsBuffer[v * 3]) : glm::vec4(0.0f);
+					vertex.tangent = tangentsBuffer ? glm::make_vec4(&tangentsBuffer[v * 4]) : glm::vec4(0.0f);
 					vertices.push_back(vertex);
 				}
 				primitiveVertices.push_back(std::move(vertices));
@@ -133,43 +135,64 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 			}
 			materialIndices.push_back(baseMaterialOffset + gltfPrimitive.material);
 		}
-		meshPool.emplace_back(device, dmm, rth, primitiveVertices, primitiveIndices, materialIndices);
+		meshPool.emplace_back(device, dmm, rth, geometryInfos.size(), primitiveVertices, primitiveIndices, materialIndices);
 		for (int i = 0; i < gltfMesh.primitives.size(); i++)
 			geometryInfos.emplace_back(device->getBufferAddress(**meshPool.back().vertexBuffers[i]), device->getBufferAddress(**meshPool.back().indexBuffers[i]), meshPool.back().materialIndices[i]);
 	}
-
-	LOG_INFO("Creating geometry info buffer with %d geometries", geometryInfos.size());
-	auto geometryInfoBufferCI = vk::BufferCreateInfo{}
-		.setSize(geometryInfos.size() * sizeof(GeometryInfo))
-		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	geometryInfoBuffer = std::make_unique<Buffer>(device, dmm, rth, geometryInfoBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(geometryInfoBufferCI.size), (char*)geometryInfos.data() }, MemoryStorage::DevicePersistent);
 
 	// Load materials and associated textures
 	LOG_INFO("Loading %d materials", model.materials.size());
 	for (const auto& gltfMaterial : model.materials) {
 		Material material;
+
 		material.baseColourFactor = glm::make_vec4(gltfMaterial.pbrMetallicRoughness.baseColorFactor.data());
-		material.emissiveFactor = glm::make_vec3(gltfMaterial.emissiveFactor.data());
 		if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index != -1)
-			material.baseColourTexIdx = baseMaterialOffset + gltfMaterial.pbrMetallicRoughness.baseColorTexture.index;
+			material.baseColourTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.baseColorTexture.index].source;
+
+		if (gltfMaterial.alphaMode == "OPAQUE")
+			material.alphaMode = 0;
+		else if (gltfMaterial.alphaMode == "MASK")
+			material.alphaMode = 1;
+		else if (gltfMaterial.alphaMode == "BLEND")
+			material.alphaMode = 2;
+		material.alphaCutoff = gltfMaterial.alphaCutoff;
+
+		material.emissiveFactor = glm::make_vec3(gltfMaterial.emissiveFactor.data());
 		if (gltfMaterial.emissiveTexture.index != -1)
-			material.baseColourTexIdx = baseMaterialOffset + gltfMaterial.emissiveTexture.index;
+			material.emissiveTexIdx = baseTextureOffset + model.textures[gltfMaterial.emissiveTexture.index].source;
 
 		material.metallicFactor = gltfMaterial.pbrMetallicRoughness.metallicFactor;
 		material.roughnessFactor = gltfMaterial.pbrMetallicRoughness.roughnessFactor;
 		if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index != -1)
-			material.metallicRoughnessTexIdx = baseMaterialOffset + gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index;
+			material.metallicRoughnessTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index].source;
 		if (gltfMaterial.normalTexture.index != -1)
-			material.normalTexIdx = baseMaterialOffset + gltfMaterial.normalTexture.index;
+			material.normalTexIdx = baseTextureOffset + model.textures[gltfMaterial.normalTexture.index].source;
 
 		material.doubleSided = gltfMaterial.doubleSided;
 
+		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); transmission != gltfMaterial.extensions.end()) {
+			if (transmission->second.Has("emissiveStrength"))
+				material.emissiveStrength = transmission->second.Get("emissiveStrength").GetNumberAsDouble();
+		}
+		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_transmission"); transmission != gltfMaterial.extensions.end()) {
+			if (transmission->second.Has("transmissionFactor"))
+				material.transmissionFactor = static_cast<float>(transmission->second.Get("transmissionFactor").GetNumberAsDouble());
+			if (transmission->second.Has("transmissionTexture"))
+				material.transmissionTexIdx = baseTextureOffset + model.textures[transmission->second.Get("transmissionTexture").Get("index").GetNumberAsInt()].source;
+		}
+		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_volume"); transmission != gltfMaterial.extensions.end()) {
+			if (transmission->second.Has("thicknessFactor"))
+				material.thicknessFactor = transmission->second.Get("thicknessFactor").GetNumberAsDouble();
+			if (transmission->second.Has("attenuationDistance"))
+				material.attenuationDistance = transmission->second.Get("attenuationDistance").GetNumberAsDouble();
+			if (transmission->second.Has("attenuationColor")) {
+				assert(transmission->second.Get("attenuationColor").ArrayLen() == 3);
+				for (int i = 0; i < 3; i++)
+					material.attenuationColour[i] = transmission->second.Get("attenuationDistance").Get(i).GetNumberAsDouble();
+			}
+		}
 		materials.push_back(material);
 	}
-	auto materialsBufferCI = vk::BufferCreateInfo{}
-		.setSize(materials.size() * sizeof(Material))
-		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
-	materialsBuffer = std::make_unique<Buffer>(device, dmm, rth, materialsBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(materialsBufferCI.size), (char*)materials.data() }, MemoryStorage::DevicePersistent);
 
 	LOG_INFO("Loading %d images", model.images.size());
 	for (const auto& gltfImage : model.images) {
@@ -201,6 +224,21 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 	for (const auto& nodeIdx : model.scenes[0].nodes)
 		processModelRecursive(parent, model, model.nodes[nodeIdx], glm::mat4(1.0f));
 
+	LOG_INFO("Finished loading model %s", path.filename().string().c_str());
+}
+
+void Scene::uploadResources() {
+	LOG_INFO("Uploading scene resources to GPU");
+	auto geometryInfoBufferCI = vk::BufferCreateInfo{}
+		.setSize(geometryInfos.size() * sizeof(GeometryInfo))
+		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
+	geometryInfoBuffer = std::make_unique<Buffer>(device, dmm, rth, geometryInfoBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(geometryInfoBufferCI.size), (char*)geometryInfos.data() }, MemoryStorage::DevicePersistent);
+
+	auto materialsBufferCI = vk::BufferCreateInfo{}
+		.setSize(materials.size() * sizeof(Material))
+		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
+	materialsBuffer = std::make_unique<Buffer>(device, dmm, rth, materialsBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(materialsBufferCI.size), (char*)materials.data() }, MemoryStorage::DevicePersistent);
+
 	// Light positions processed during scene traversal, so we upload these after it is done
 	uint32_t numPointLights = pointLights.size();
 	auto pointLightsBufferCI = vk::BufferCreateInfo{}
@@ -222,12 +260,11 @@ void Scene::loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem
 	if (numDirectionalLights > 0)
 		directionalLightsBuffer->write({ static_cast<uint32_t>(numDirectionalLights * sizeof(DirectionalLight)), (char*)directionalLights.data() }, sizeof(uint32_t));
 
-	LOG_INFO("Finished loading model %s", path.filename().string().c_str());
+	LOG_INFO("Scene resources uploaded");
 }
 
 void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform) {
 	uint32_t baseMeshOffset = meshPool.size() - model.meshes.size();
-	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
 	uint32_t baseLightOffset = lightGlobalToTypeIndex.size() - model.lights.size();
 
 	int nodeMeshIdx = node.mesh != -1 ? baseMeshOffset + node.mesh : -1;
@@ -239,12 +276,12 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 		if (node.scale.size() != 0)
 			nodeTransform = glm::scale(static_cast<glm::vec3>(glm::make_vec3(node.scale.data()))) * nodeTransform;
 		if (node.rotation.size() != 0)
-			nodeTransform = static_cast<glm::mat4>(glm::toMat4(glm::make_quat(node.rotation.data()))) * nodeTransform;
+			nodeTransform = glm::mat4(static_cast<glm::quat>(glm::make_quat(node.rotation.data()))) * nodeTransform;
 		if (node.translation.size() != 0)
 			nodeTransform = glm::translate(static_cast<glm::vec3>(glm::make_vec3(node.translation.data()))) * nodeTransform;
 	}
-	glm::mat4 currentTransform = nodeTransform * parentTransform;
 
+	glm::mat4 currentTransform = nodeTransform * parentTransform;
 	if (node.light != -1) {
 		glm::vec3 translation;
 		glm::vec3 scale;
@@ -261,7 +298,7 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 		}
 	}
 
-	auto& so = addObject(parent ? parent : &root, nodeTransform, nodeMeshIdx);
+	auto& so = addNode(parent, nodeTransform, nodeMeshIdx);
 	maxDepth = std::max(maxDepth, so.depth);
 	for (const auto& childNodeIdx : node.children)
 		processModelRecursive(&so, model, model.nodes[childNodeIdx], currentTransform);

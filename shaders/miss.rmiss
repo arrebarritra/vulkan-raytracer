@@ -1,8 +1,12 @@
 #version 460
 #extension GL_EXT_ray_tracing : enable
 
-layout(location = 0) rayPayloadInEXT vec3 hitValue;
+#include "payload.glsl"
+layout(location = 0) rayPayloadInEXT PathTracingPayload payload;
 
 void main() {
-    hitValue = vec3(0.53, 0.81, 0.92);
+    payload.hitNormal = vec3(0.0);
+    payload.baseColour = vec3(0.0);
+    payload.emittedLight = 10.0 * vec3(0.6, 0.8, 0.95);
+    payload.directLight = vec3(0.0);
 }

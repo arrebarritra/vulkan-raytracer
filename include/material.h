@@ -3,10 +3,17 @@
 namespace vkrt {
 
 struct Material {
-	glm::vec4 baseColourFactor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	glm::vec4 baseColourFactor = glm::vec4(1.0f);
+	int alphaMode = 0; 
+	float alphaCutoff = 0.5;
 	glm::vec3 emissiveFactor = glm::vec3(0.0f);
-	float roughnessFactor = 0.0f, metallicFactor = 0.0f;
-	int baseColourTexIdx = -1, metallicRoughnessTexIdx = -1, normalTexIdx = -1, emissiveTexIdx = -1;
+	float roughnessFactor = 1.0f, metallicFactor = 1.0f;
+	float emissiveStrength = 1.0f;
+	float transmissionFactor = 0.0f;
+	float thicknessFactor = 0.0f, attenuationDistance = std::numeric_limits<float>::infinity();
+	glm::vec3 attenuationColour = glm::vec3(1.0f);
+	float ior = 1.5;
+	int baseColourTexIdx = -1, metallicRoughnessTexIdx = -1, normalTexIdx = -1, emissiveTexIdx = -1, transmissionTexIdx = -1;
 	bool doubleSided = false; // GLSL bools 4 bytes
 };
 

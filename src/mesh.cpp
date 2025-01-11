@@ -2,10 +2,11 @@
 
 namespace vkrt {
 
-Mesh::Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, std::vector<std::vector<Vertex>> primitiveVertices, std::vector<std::vector<Index>> primitiveIndices, std::vector<uint32_t> materialIndices)
-	: materialIndices(materialIndices)
+Mesh::Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, uint32_t primitiveOffset, std::vector<std::vector<Vertex>> primitiveVertices, std::vector<std::vector<Index>> primitiveIndices, std::vector<uint32_t> materialIndices)
+	: primitiveOffset(primitiveOffset), materialIndices(materialIndices)
 {
-	assert(primitiveVertices.size() == primitiveIndices.size() && primitiveIndices.size() == materialIndices.size());
+	primitiveCount = primitiveVertices.size();
+	assert(primitiveCount == primitiveIndices.size() && primitiveCount == materialIndices.size());
 	vertexCounts.reserve(primitiveVertices.size());
 	indexCounts.reserve(primitiveIndices.size());
 	vertexBuffers.reserve(primitiveVertices.size());

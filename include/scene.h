@@ -57,9 +57,9 @@ public:
 
 	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer, pointLightsBuffer, directionalLightsBuffer;
 
-	SceneObject& addObject(SceneObject* parent, glm::mat4& transform, int meshIdx);
-	void loadModel(SceneObject* parent, glm::mat4& transform, std::filesystem::path path);
-
+	SceneObject& addNode(SceneObject* parent, glm::mat4& transform = glm::mat4(1.0f), int meshIdx = -1);
+	void loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4& transform = glm::mat4(1.0f));
+	void uploadResources();
 
 	// Stackless iterator
 	class iterator {

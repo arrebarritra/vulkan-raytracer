@@ -4,6 +4,8 @@
  *
  */
 
+#include "constants.glsl"
+
 // Tiny Encryption Algorithm
 // By Fahad Zafar, Marc Olano and Aaron Curtis, see https://www.highperformancegraphics.org/previous/www_2010/media/GPUAlgorithms/HPG2010_GPUAlgorithms_Zafar.pdf
 uint tea(uint val0, uint val1)
@@ -34,4 +36,16 @@ uint lcg(inout uint previous)
 float rnd(inout uint previous)
 {
     return (float(lcg(previous)) / float(0x01000000));
+}
+
+//------------------------------------------------------------------------
+
+// Uniformly random point on normal oriented hemisphere
+vec3 uniformPointOnHemisphere(vec3 normal, inout uint seed) {
+    float s = rnd(seed); float t = rnd(seed);
+    float r = sqrt(1 - s * s);
+    vec3 p;
+    p.xy = r * vec2(cos(TWOPI * t), sin(TWOPI * t));
+    p.z = s;
+    return dot(p, normal) > 0.0 ? p : -p;
 }

@@ -19,7 +19,6 @@ public:
 
 	std::vector<vk::UniqueAccelerationStructureKHR> blas;
 	std::vector<std::unique_ptr<Buffer>> blasBuffers;
-	std::unique_ptr<Buffer> transformBuffer;
 
 	vk::SharedFence rebuild(vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> waitSemaphores = nullptr, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> signalSemaphores = nullptr);
 	vk::SharedFence update(vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> waitSemaphores = nullptr, vk::ArrayProxyNoTemporaries<vk::SharedSemaphore> signalSemaphores = nullptr);

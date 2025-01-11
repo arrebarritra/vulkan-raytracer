@@ -24,8 +24,9 @@ struct GeometryInfo {
 
 class Mesh {
 public:
-	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, std::vector<std::vector<Vertex>> vertices, std::vector<std::vector<Index>> indices, std::vector<uint32_t> materialIndices);
+	Mesh(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, uint32_t primitiveOffset, std::vector<std::vector<Vertex>> vertices, std::vector<std::vector<Index>> indices, std::vector<uint32_t> materialIndices);
 
+	uint32_t primitiveCount, primitiveOffset;
 	std::vector<uint32_t> vertexCounts, indexCounts, materialIndices;
 	std::vector<std::unique_ptr<Buffer>> vertexBuffers, indexBuffers;
 };
