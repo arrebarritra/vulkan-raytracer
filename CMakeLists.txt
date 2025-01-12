@@ -9,8 +9,8 @@ set(SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res")
 set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
-set(SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 set(EXTERNAL_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/external")
+set(SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 
 file(GLOB SOURCE_FILES CONFIGURE_DEPENDS
@@ -79,22 +79,21 @@ add_dependencies(${PROJECT_NAME} glfw)
 # Compile shaders
 find_program(glslc_executable NAMES glslc HINTS Vulkan::glslc)
 
-add_custom_command(
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BINARY_DIR}
-  OUTPUT ${SHADER_BINARY_DIR}
-  COMMENT "Creating ${SHADER_BINARY_DIR}"
-)
-
 foreach(source IN LISTS SHADER_FILES)
   get_filename_component(FILENAME ${source} NAME)
   add_custom_command(
-    COMMAND ${glslc_executable} --target-spv=spv1.4 -o ${SHADER_BINARY_DIR}/${FILENAME}.spv ${source}
-    OUTPUT ${SHADER_BINARY_DIR}/${FILENAME}.spv
+    COMMAND ${glslc_executable} --target-spv=spv1.4 -o ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv ${source} $<IF:$<CONFIG:Debug,RelWithDebInfo>,-O0,O>
+    OUTPUT ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv
     DEPENDS ${source} ${SHADER_BINARY_DIR}
     COMMENT "Compiling ${FILENAME}"
   )
-  list(APPEND SPV_SHADERS ${SHADER_BINARY_DIR}/${FILENAME}.spv)
+  list(APPEND SPV_SHADERS ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv)
 endforeach()
 
+
 add_custom_target(shaders ALL DEPENDS ${SPV_SHADERS})
+target_compile_definitions(${PROJECT_NAME} PRIVATE 
+    SHADER_BINARY_DIR="${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>"
+)
+
 add_dependencies(${PROJECT_NAME} shaders)
