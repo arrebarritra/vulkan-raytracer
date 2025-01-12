@@ -21,7 +21,7 @@ private:
 	CameraProperties camProps;
 
 	struct PathTracingProperties {
-		uint32_t sampleCount, maxRayDepth = 10u;
+		uint32_t sampleCount, maxRayDepth = 5u;
 	};
 	PathTracingProperties pathTracingProps;
 

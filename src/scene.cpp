@@ -206,7 +206,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	for (const auto& gltfLight : model.lights) {
 		if (gltfLight.type == "point") {
 			PointLight light;
-			light.colour = glm::make_vec3(gltfLight.color.data());
+			light.colour = gltfLight.color.size() == 0 ? glm::vec3(0.0f) : glm::make_vec3(gltfLight.color.data());
 			light.intensity = gltfLight.intensity;
 			light.range = gltfLight.range;
 			lightGlobalToTypeIndex.push_back(std::make_tuple(LightTypes::Point, static_cast<uint32_t>(pointLights.size())));
@@ -260,11 +260,22 @@ void Scene::uploadResources() {
 	if (numDirectionalLights > 0)
 		directionalLightsBuffer->write({ static_cast<uint32_t>(numDirectionalLights * sizeof(DirectionalLight)), (char*)directionalLights.data() }, sizeof(uint32_t));
 
+	uint32_t numEmissiveSurfaces = emissiveSurfaces.size();
+	auto emissiveSurfaceBufferCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(uint32_t) + numEmissiveSurfaces * sizeof(EmissiveSurface))
+		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst);
+	emissiveSurfacesBuffer = std::make_unique<Buffer>(device, dmm, rth, emissiveSurfaceBufferCI, nullptr, MemoryStorage::DevicePersistent);
+
+	emissiveSurfacesBuffer->write({ sizeof(uint32_t), (char*)&numEmissiveSurfaces });
+	if (numEmissiveSurfaces > 0)
+		emissiveSurfacesBuffer->write({ static_cast<uint32_t>(numEmissiveSurfaces * sizeof(EmissiveSurface)), (char*)emissiveSurfaces.data() }, sizeof(uint32_t));
+
 	LOG_INFO("Scene resources uploaded");
 }
 
 void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform) {
 	uint32_t baseMeshOffset = meshPool.size() - model.meshes.size();
+	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
 	uint32_t baseLightOffset = lightGlobalToTypeIndex.size() - model.lights.size();
 
 	int nodeMeshIdx = node.mesh != -1 ? baseMeshOffset + node.mesh : -1;
@@ -295,6 +306,24 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 			pointLights[index].position = translation;
 		} else if (lightType == LightTypes::Directional) {
 			directionalLights[index].direction = rotation * glm::vec3(0.0, 0.0, -1.0);
+		}
+	}
+
+	if (nodeMeshIdx != -1) {
+		const Mesh& mesh = meshPool[nodeMeshIdx];
+		for (int i = 0; i < mesh.primitiveCount; i++) {
+			if (mesh.materialIndices[i] >= 0 && materials[mesh.materialIndices[i]].emissiveFactor != glm::vec3(0.0)) {
+				const auto& gltfPrimitive = model.meshes[node.mesh].primitives[i];
+				EmissiveSurface es;
+				es.geometryIdx = meshPool[nodeMeshIdx].primitiveOffset + i;
+				const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("POSITION")->second];
+				if (accessor.minValues.size() != 3 || accessor.maxValues.size() != 3)
+					LOG_ERROR("Position accessor must contain number[3] min and max values");
+				es.minCoord = glm::make_vec3(accessor.minValues.data());
+				es.maxCoord = glm::make_vec3(accessor.maxValues.data());
+				es.transform = currentTransform;
+				emissiveSurfaces.push_back(es);
+			}
 		}
 	}
 

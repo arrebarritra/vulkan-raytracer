@@ -40,12 +40,32 @@ float rnd(inout uint previous)
 
 //------------------------------------------------------------------------
 
+// Generate random int in [min, max] given previous RNG state
+int rnd(inout uint previous, int min, int max) {
+    return int(min + rnd(previous) * (max - min + 1));
+}
+
+// Generate random uint in [min, max] given previous RNG state
+uint rnd(inout uint previous, uint min, uint max) {
+    return uint(min + rnd(previous) * (max - min + 1u));
+}
+
+// Unofrmly random point in square
+vec2 rndSquare(inout uint previous) {
+    return vec2(rnd(previous), rnd(previous));
+}
+
+// Uniformly random point in cube
+vec3 rndCube(inout uint previous) {
+    return vec3(rnd(previous), rnd(previous), rnd(previous));
+}
+
 // Uniformly random point on normal oriented hemisphere
-vec3 uniformPointOnHemisphere(vec3 normal, inout uint seed) {
-    float s = rnd(seed); float t = rnd(seed);
-    float r = sqrt(1 - s * s);
+vec3 uniformPointOnHemisphere(vec3 normal, inout uint previous) {
+    vec2 u = rndSquare(previous);
+    float r = sqrt(1 - u.x * u.x);
     vec3 p;
-    p.xy = r * vec2(cos(TWOPI * t), sin(TWOPI * t));
-    p.z = s;
+    p.xy = r * vec2(cos(TWOPI * u.y), sin(TWOPI * u.y));
+    p.z = u.x;
     return dot(p, normal) > 0.0 ? p : -p;
 }

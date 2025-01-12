@@ -1,8 +1,9 @@
 #version 460
 #extension GL_EXT_ray_tracing : enable
 
-layout(location = 1) rayPayloadInEXT bool shadow;
+#include "payload.glsl"
+layout(location = 1) rayPayloadInEXT ShadowPayload payload;
 
 void main() {
-    shadow = false;
+    payload.shadowRayMiss = true;
 }

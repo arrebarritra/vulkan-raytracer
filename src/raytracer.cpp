@@ -46,8 +46,9 @@ Raytracer::Raytracer()
 	createImages();
 
 	// Create acceleration structure
-	scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
-	scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
+	//scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
+	//scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
+	scene.loadModel(RESOURCE_DIR"CornellBox-Original.gltf", &scene.root);
 	scene.uploadResources();
 	rth->flushPendingTransfers();
 
@@ -159,7 +160,7 @@ void Raytracer::createRaytracingPipeline() {
 		.setBinding(4u)
 		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR | vk::ShaderStageFlagBits::eClosestHitKHR);
 	auto geometryInfoBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(5u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
@@ -174,22 +175,28 @@ void Raytracer::createRaytracingPipeline() {
 		.setBinding(7u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
 	auto directionalLightsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(8u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+	auto emissiveSurfacesBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(9u)
+		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
+		.setDescriptorCount(1u)
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+		.setBinding(10u)
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 		.setDescriptorCount(static_cast<uint32_t>(scene.texturePool.size()))
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	std::array layoutBindings = { accelerationStructureLB, accumulationImageLB, outputImageLB, uniformCameraPropsLB,
 									uniformPathTracingPropsLB, geometryInfoBufferLB, materialsBufferLB,
-									pointLightsBufferLB, directionalLightsBufferLB, textureSamplersLB };
+									pointLightsBufferLB, directionalLightsBufferLB, emissiveSurfacesBufferLB, textureSamplersLB };
 
 	std::array descriptorBindingFlags = {
+		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
@@ -213,8 +220,11 @@ void Raytracer::createRaytracingPipeline() {
 
 	// Shaders
 	std::vector<std::string> raygenShaders = { "raygen.rgen" };
-	std::vector<std::string> missShaders = { "miss.rmiss", "shadow.rmiss" };
-	std::vector<std::array<std::string, 3>> hitGroups = { {"hit.rchit", "anyhit.rahit", ""} };
+	std::vector<std::string> missShaders = { "skybox.rmiss", "shadow.rmiss", "emissive.rmiss"};
+	std::vector<std::array<std::string, 3>> hitGroups = {
+		{"hit.rchit", "hit.rahit", ""},
+		{"emissive.rchit", "hit.rahit", ""}
+	};
 	raytracingShaders = std::make_unique<RaytracingShaders>(device, raygenShaders, missShaders, hitGroups);
 
 	// Create shader groups
@@ -361,10 +371,19 @@ void Raytracer::updateDescriptorSets() {
 		.setBufferInfo(directionalLightsBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
+	auto emissiveSurfacesBufferDescriptor = vk::DescriptorBufferInfo{}
+		.setBuffer(**scene.emissiveSurfacesBuffer)
+		.setRange(scene.emissiveSurfacesBuffer->bufferCI.size);
+	auto emissiveSurfacesBufferWrite = vk::WriteDescriptorSet{}
+		.setDstSet(descriptorSet)
+		.setDstBinding(9u)
+		.setBufferInfo(emissiveSurfacesBufferDescriptor)
+		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+
 	std::vector<vk::WriteDescriptorSet> descriptorWrites = {
 		accelerationStructureWrite, accumulationImageWrite, outputImageWrite,
 		uniformCameraPropsWrite, uniformPathTracingPropsWrite,geometryInfoBufferWrite, materialsBufferWrite,
-		pointLightsBufferWrite, directionalLightsBufferWrite
+		pointLightsBufferWrite, directionalLightsBufferWrite, emissiveSurfacesBufferWrite
 	};
 
 	std::vector<vk::DescriptorImageInfo> textureDescriptors;
@@ -375,7 +394,7 @@ void Raytracer::updateDescriptorSets() {
 		}
 		auto& textureWrites = vk::WriteDescriptorSet{}
 			.setDstSet(descriptorSet)
-			.setDstBinding(9u)
+			.setDstBinding(10u)
 			.setImageInfo(textureDescriptors)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 

@@ -11,12 +11,18 @@
 #include "geometry.glsl"
 #include "material.glsl"
 #include "light.glsl"
+#include "texture.glsl"
+#include "constants.glsl"
+#include "random.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 9, set = 0) uniform sampler2D textures[];
+layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
+    uint sampleCount, maxRayDepth;
+} pathTracing;
 
-layout(location = 0) rayPayloadInEXT PathTracingPayload payload;
-layout(location = 1) rayPayloadEXT bool shadow;
+layout(location = 0) rayPayloadInEXT PathTracingPayload payloadIn;
+layout(location = 1) rayPayloadEXT ShadowPayload shadowRayPayload;
+layout(location = 2) rayPayloadEXT EmissivePayload emissiveRayPayload;
 hitAttributeEXT vec2 attribs;
 
 struct HitInfo {
@@ -26,8 +32,8 @@ struct HitInfo {
     float transmissionFactor;
 };
 
-HitInfo unpackTriangle(uint idx, vec3 weights, out GeometryInfo geometryInfo, out Material material) {
-    geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
+HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
+    GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
     material = materials[geometryInfo.materialIdx];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
@@ -63,29 +69,28 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out GeometryInfo geometryInfo, ou
 
     hitInfo.baseColour = material.baseColourFactor.rgb;
     if (material.baseColourTexIdx != -1)
-        hitInfo.baseColour *= texture(textures[nonuniformEXT(material.baseColourTexIdx)], uv0).rgb;
+        hitInfo.baseColour *= textureGet(material.baseColourTexIdx, uv0).rgb;
     
-    hitInfo.emissiveColour = material.emissiveFactor;
+    hitInfo.emissiveColour = material.emissiveFactor * material.emissiveStrength;
     if (material.emissiveTexIdx != -1)
-        hitInfo.emissiveColour *= texture(textures[nonuniformEXT(material.emissiveTexIdx)], uv0).rgb;
-    hitInfo.emissiveColour *= material.emissiveStrength;
+        hitInfo.emissiveColour *= textureGet(material.emissiveTexIdx, uv0).rgb;
 
     hitInfo.transmissionFactor = material.transmissionFactor;
     if (material.transmissionTexIdx != -1)
-        hitInfo.transmissionFactor *= texture(textures[nonuniformEXT(material.transmissionTexIdx)], uv0).r;
+        hitInfo.transmissionFactor *= textureGet(material.transmissionTexIdx, uv0).r;
 
     hitInfo.normal = normalize(hitInfo.normal);
     if (material.normalTexIdx != -1) {
         tangent = normalize(tangent);
         bitangent = normalize(bitangent);
-        hitInfo.normal = mat3(tangent, bitangent, hitInfo.normal) * normalize(texture(textures[nonuniformEXT(material.normalTexIdx)], uv0).rgb * 2.0 - 1.0);
+        hitInfo.normal = mat3(tangent, bitangent, hitInfo.normal) * normalize(textureGet(material.normalTexIdx, uv0).rgb * 2.0 - 1.0);
     }
-    hitInfo.normal = sign(dot(payload.rayOrigin - hitInfo.pos, hitInfo.normal)) * hitInfo.normal;
+    hitInfo.normal = sign(dot(payloadIn.rayOrigin - hitInfo.pos, hitInfo.normal)) * hitInfo.normal;
     
     hitInfo.roughnessFactor = material.roughnessFactor;
     hitInfo.metallicFactor = material.metallicFactor;
     if (material.metallicRoughnessTexIdx != -1) {
-        vec2 metallicRoughness = texture(textures[nonuniformEXT(material.metallicRoughnessTexIdx)], uv0).bg;
+        vec2 metallicRoughness = textureGet(material.metallicRoughnessTexIdx, uv0).bg;
         hitInfo.metallicFactor = metallicRoughness.x;
         hitInfo.roughnessFactor = metallicRoughness.y;
     }
@@ -94,67 +99,69 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out GeometryInfo geometryInfo, ou
 }
 
 void main() {
-    const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    GeometryInfo geometryInfo;
-    Material mat;
-    HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords, geometryInfo, mat);
+    uint seed = tea(gl_PrimitiveID * gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount);
 
-    // Cast shadow rays
-//    float shadowBias = 0.01;
-//    vec3 shadowRayOrigin = hitInfo.pos + shadowBias * hitInfo.normal;
-//    vec3 lightFactor = vec3(0.3);
-  
-//    for (int i = 0; i < numPointLights; i++) {
-//        PointLight light = pointLights[i];
-//        vec3 lightRay = light.position - shadowRayOrigin;
-//        float lightDist = length(lightRay);
-//        vec3 lightDir = lightRay / lightDist;
-//    
-//        shadow = true;
-//        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, lightDir, lightDist, 1);
-//        if (!shadow) {
-//            float k_d = max(dot(hitInfo.normal, lightDir), 0.0);
-//            float attenuation = light.range == 0.0 ? 1.0 : max(1.0 - pow(lightDist / light.range, 4), 0.0);
-//            attenuation /= lightDist * lightDist;
-//            attenuation = min(attenuation, 1.0);
-//            lightFactor += k_d * light.colour;
-//        }
-//    }
-//
-//    for (int i = 0; i < numDirectionalLights; i++) {
-//        DirectionalLight light = directionalLights[i];
-//    
-//        shadow = true;
-//        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, -light.direction, 10000.0, 1);
-//        if (!shadow) {
-//            float k_d = max(dot(hitInfo.normal, -light.direction), 0.0);
-//            lightFactor += k_d * light.colour;
-//        }
-//    }
-//    // Add directional light if there are no lights
-//    if (numPointLights + numDirectionalLights == 0) {
-//        DirectionalLight light;
-//        light.colour = vec3(1.0, 0.8, 0.7);
-//        light.direction = normalize(vec3(0.1, -1.0, 0.0));
-//
-//        shadow = true;
-//        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, -light.direction, 10000.0, 1);
-//        if (!shadow) {
-//            float k_d = max(dot(hitInfo.normal, light.direction), 0.0);
-//            lightFactor += k_d * light.colour;
-//        }
-//    }
+    const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
+    Material mat;
+    HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords, mat);
+
+    payloadIn.directLight = vec3(0.0);
+    if (hitInfo.emissiveColour == vec3(0.0)) {
+        // Calculate direct light contribution from point and directional lights, and emissive surfaces
+        vec3 shadowRayOrigin = hitInfo.pos + BIAS * hitInfo.normal;
+
+        uint numLights = numPointLights + numDirectionalLights + numEmissiveSurfaces;
+        int lightIdx = rnd(seed, 0, int(numLights - 1));
+        if (lightIdx < numPointLights) {
+            PointLight light = pointLights[lightIdx];
+            vec3 lightRay = light.position - shadowRayOrigin;
+            float lightDist = length(lightRay);
+            vec3 lightDir = lightRay / lightDist;
     
-    payload.hitPos = hitInfo.pos;
-    payload.hitNormal = hitInfo.normal;
-    payload.emittedLight = hitInfo.emissiveColour;
-    payload.baseColour = hitInfo.baseColour.rgb;
-    payload.directLight = vec3(0.0);
-    payload.transmissionFactor = hitInfo.transmissionFactor;
-    payload.ior = mat.ior;
-    payload.thin = mat.thicknessFactor == 0;
-    if (payload.thin) {
-        payload.attenuationDistance = mat.attenuationDistance;
-        payload.attenuationColour = mat.attenuationColour;
+            shadowRayPayload.shadowRayMiss = false;
+            traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, lightDir, lightDist, 1);
+            if (shadowRayPayload.shadowRayMiss) {
+                float k_d = dot(hitInfo.normal, lightDir);
+                float attenuation = light.range == 0.0 ? 1.0 : max(1.0 - pow(lightDist / light.range, 4), 0.0);
+                attenuation /= lightDist * lightDist;
+                attenuation = min(attenuation, 1.0);
+                payloadIn.directLight += k_d * light.colour;
+            }
+        } else if (lightIdx < numPointLights + numDirectionalLights) {
+            DirectionalLight light = directionalLights[lightIdx - numPointLights];
+    
+            shadowRayPayload.shadowRayMiss = false;
+            traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, -light.direction, 10000.0, 1);
+            if (shadowRayPayload.shadowRayMiss) {
+                float k_d = dot(hitInfo.normal, -light.direction);
+                payloadIn.directLight += k_d * light.colour;
+            }
+        } else {
+            EmissiveSurface es = emissiveSurfaces[lightIdx - numDirectionalLights - numPointLights];
+            vec3 worldPoint = vec3(es.transform * vec4(es.minCoord + rndCube(seed) * (es.maxCoord - es.minCoord), 1.0));
+            vec3 lightRay = worldPoint - shadowRayOrigin;
+            float lightDist = length(lightRay);
+            vec3 lightDir = lightRay / lightDist;
+            
+            emissiveRayPayload.instanceIdx = es.geometryIdx;
+            traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, 1, 0, 2, shadowRayOrigin, 0.0, lightDir, lightDist + BIAS, 2);
+        
+            if (emissiveRayPayload.instanceHit) {
+                float k_d = dot(hitInfo.normal, lightDir);
+                payloadIn.directLight += emissiveRayPayload.emittedLight;
+            }
+        }
+    }
+    
+    payloadIn.hitPos = hitInfo.pos;
+    payloadIn.hitNormal = hitInfo.normal;
+    payloadIn.emittedLight = hitInfo.emissiveColour;
+    payloadIn.baseColour = hitInfo.baseColour.rgb;
+    payloadIn.transmissionFactor = hitInfo.transmissionFactor;
+    payloadIn.ior = mat.ior;
+    payloadIn.thin = mat.thicknessFactor == 0;
+    if (payloadIn.thin) {
+        payloadIn.attenuationDistance = mat.attenuationDistance;
+        payloadIn.attenuationColour = mat.attenuationColour;
     }
 }

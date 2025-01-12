@@ -163,12 +163,16 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instanceBuffer, s
 			auto affineTransform = glm::mat3x4(glm::transpose(it.transform));
 			memcpy(transformMatrix.data(), &affineTransform, sizeof(transformMatrix));
 
+			const auto& mat = scene.materials[scene.geometryInfos[mesh.primitiveOffset + i].materialIdx];
+			uint32_t objectMask = 1u;
+			if (mat.emissiveFactor == glm::vec3(0.0))
+				objectMask |= 1u << 1;
 			instanceData.push_back(vk::AccelerationStructureInstanceKHR{}
 								   .setTransform(vk::TransformMatrixKHR{}.setMatrix(transformMatrix))
 								   .setInstanceCustomIndex(mesh.primitiveOffset + i)
-								   .setMask(0xFF)
+								   .setMask(objectMask)
 								   .setInstanceShaderBindingTableRecordOffset(0u)
-								   .setFlags(scene.materials[scene.geometryInfos[mesh.primitiveOffset + i].materialIdx].doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagBitsKHR{})
+								   .setFlags(mat.doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagBitsKHR{})
 								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[mesh.primitiveOffset + i])));
 		}
 	}

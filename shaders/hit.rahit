@@ -8,23 +8,20 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 
-#include "payload.glsl"
 #include "geometry.glsl"
 #include "material.glsl"
+#include "texture.glsl"
 #include "random.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
-    uint sampleCount;
-    uint maxRayDepth;
+    uint sampleCount, maxRayDepth;
 } pathTracing;
-layout(binding = 9, set = 0) uniform sampler2D textures[];
 
-//layout(location = 0) rayPayloadInEXT PathTracingPayload rayPayload;
 hitAttributeEXT vec2 attribs;
 
-float unpackTriangle(uint idx, vec3 weights, out GeometryInfo geometryInfo, out Material material) {
-    geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
+float unpackTriangle(uint idx, vec3 weights, out Material material) {
+    GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
     material = materials[geometryInfo.materialIdx];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
@@ -38,16 +35,16 @@ float unpackTriangle(uint idx, vec3 weights, out GeometryInfo geometryInfo, out 
 
     float alpha = material.baseColourFactor.a;
     if (material.baseColourTexIdx != -1)
-        alpha *= texture(textures[nonuniformEXT(material.baseColourTexIdx)], uv0).a;
+        alpha *= textureGet(material.baseColourTexIdx, uv0).a;
     return alpha;
 }
 
 void main() {
     uint seed = tea(gl_PrimitiveID * gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount);
+
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    GeometryInfo geometryInfo;
     Material mat;
-    float alpha = unpackTriangle(gl_PrimitiveID, barycentricCoords, geometryInfo, mat);
+    float alpha = unpackTriangle(gl_PrimitiveID, barycentricCoords, mat);
     
     if ((mat.alphaMode == 1 && alpha < mat.alphaCutoff) || (mat.alphaMode == 2 && rnd(seed) < (1 - alpha))) {
         ignoreIntersectionEXT;

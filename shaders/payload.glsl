@@ -7,3 +7,13 @@ struct PathTracingPayload {
     float attenuationDistance;
     vec3 attenuationColour;
 };
+
+struct ShadowPayload {
+    bool shadowRayMiss;
+};
+
+struct EmissivePayload {
+    uint instanceIdx;
+    bool instanceHit;
+    vec3 emittedLight;
+};
