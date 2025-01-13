@@ -148,9 +148,12 @@ void main() {
         
             if (emissiveRayPayload.instanceHit) {
                 float k_d = dot(hitInfo.normal, lightDir);
-                payloadIn.directLight += emissiveRayPayload.emittedLight;
+                float attenuation = min(1.0, 1.0 / lightDist * lightDist);
+                payloadIn.directLight += emissiveRayPayload.emittedLight * k_d * attenuation;
+
             }
         }
+        payloadIn.directLight /= numLights;
     }
     
     payloadIn.hitPos = hitInfo.pos;

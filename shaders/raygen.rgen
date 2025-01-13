@@ -45,7 +45,7 @@ void main() {
         traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, payload.rayOrigin, tmin, direction, tmax, 0);
 
         value += currentPath * payload.emittedLight;
-        if (payload.emittedLight != vec3(0.0) || payload.hitNormal == vec3(0.0) || i == pathTracing.maxRayDepth - 1)
+        if (payload.emittedLight != vec3(0.0) || payload.hitNormal == vec3(-1.0) || i == pathTracing.maxRayDepth - 1)
             break;
 
         value += currentPath *  payload.baseColour * payload.directLight;
@@ -56,10 +56,10 @@ void main() {
 
         bool transmitted = rnd(seed) < payload.transmissionFactor;
         if (!transmitted)
-            direction = uniformPointOnHemisphere(payload.hitNormal, seed);
+            direction = sampleCosineHemisphere(payload.hitNormal, seed);
         payload.rayOrigin = payload.hitPos + BIAS * (transmitted ? -1.0 : 1.0) * payload.hitNormal;
 
-        currentPath *= payload.baseColour * 2 * dot(direction, payload.hitNormal);
+        currentPath *= payload.baseColour * PI;
     }
 
 
