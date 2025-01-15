@@ -4,9 +4,11 @@
 #extension GL_EXT_debug_printf : enable
 
 #include "constants.glsl"
+#include "maths.glsl"
 #include "payload.glsl"
 #include "random.glsl"
 #include "hdr.glsl"
+#include "bsdf.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D accumulationImage;
@@ -48,20 +50,21 @@ void main() {
         if (payload.emittedLight != vec3(0.0) || payload.hitNormal == vec3(-1.0) || i == pathTracing.maxRayDepth - 1)
             break;
 
-        value += currentPath *  payload.baseColour * payload.directLight;
+//        value += currentPath *  payload.baseColour * payload.directLight;
         if (pathTracing.sampleCount == 0u) {
             value += 0.5 * payload.baseColour;
             break;
         }
 
+        vec3 oldDirection = direction;
         bool transmitted = rnd(seed) < payload.transmissionFactor;
         if (!transmitted)
             direction = sampleCosineHemisphere(payload.hitNormal, seed);
         payload.rayOrigin = payload.hitPos + BIAS * (transmitted ? -1.0 : 1.0) * payload.hitNormal;
 
-        currentPath *= payload.baseColour * PI;
+        vec3 bsdf = materialBSDF(payload.baseColour, payload.metallic, payload.roughness, payload.ior, payload.hitNormal, -oldDirection, direction, normalize(direction - oldDirection));
+        currentPath *= bsdf * PI;
     }
-
 
     if (pathTracing.sampleCount > 0u) {
         vec3 prevValue = imageLoad(accumulationImage, ivec2(gl_LaunchIDEXT.xy)).xyz;

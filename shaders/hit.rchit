@@ -28,7 +28,7 @@ hitAttributeEXT vec2 attribs;
 struct HitInfo {
     vec3 pos, normal, baseColour;
     vec3 emissiveColour;
-    float roughnessFactor, metallicFactor;
+    float roughness, metallic;
     float transmissionFactor;
 };
 
@@ -87,12 +87,12 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     }
     hitInfo.normal = sign(dot(payloadIn.rayOrigin - hitInfo.pos, hitInfo.normal)) * hitInfo.normal;
     
-    hitInfo.roughnessFactor = material.roughnessFactor;
-    hitInfo.metallicFactor = material.metallicFactor;
+    hitInfo.roughness = material.roughnessFactor;
+    hitInfo.metallic = material.metallicFactor;
     if (material.metallicRoughnessTexIdx != -1) {
         vec2 metallicRoughness = textureGet(material.metallicRoughnessTexIdx, uv0).bg;
-        hitInfo.metallicFactor = metallicRoughness.x;
-        hitInfo.roughnessFactor = metallicRoughness.y;
+        hitInfo.metallic *= metallicRoughness.x;
+        hitInfo.roughness *= metallicRoughness.y;
     }
 
     return hitInfo;
@@ -160,6 +160,8 @@ void main() {
     payloadIn.hitNormal = hitInfo.normal;
     payloadIn.emittedLight = hitInfo.emissiveColour;
     payloadIn.baseColour = hitInfo.baseColour.rgb;
+    payloadIn.roughness = hitInfo.roughness;
+    payloadIn.metallic = hitInfo.metallic;
     payloadIn.transmissionFactor = hitInfo.transmissionFactor;
     payloadIn.ior = mat.ior;
     payloadIn.thin = mat.thicknessFactor == 0;

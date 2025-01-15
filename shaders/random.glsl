@@ -1,10 +1,13 @@
+#ifndef RANDOM_GLSL
+#define RANDOM_GLSL
+
 /* Copyright (c) 2023, Sascha Willems
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "constants.glsl"
+#include "maths.glsl"
 
 // Tiny Encryption Algorithm
 // By Fahad Zafar, Marc Olano and Aaron Curtis, see https://www.highperformancegraphics.org/previous/www_2010/media/GPUAlgorithms/HPG2010_GPUAlgorithms_Zafar.pdf
@@ -67,14 +70,14 @@ void branchlessONB(const vec3 n, out vec3 tangent, out vec3 bitangent)
     float sign = n.z > 0.0 ? 1.0 : -1.0;
     const float a = -1.0f / (sign + n.z);
     const float b = n.x * n.y * a;
-    tangent = vec3(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
-    bitangent = vec3(b, sign + n.y * n.y * a, -n.y);
+    tangent = vec3(1.0f + sign * POW2(n.x) * a, sign * b, -sign * n.x);
+    bitangent = vec3(b, sign + POW2(n.y) * a, -n.y);
 }
 
 // Uniformly random point on normal oriented hemisphere
 vec3 sampleUniformHemisphere(vec3 normal, inout uint previous) {
     vec2 u = rndSquare(previous);
-    float r = sqrt(1 - u.x * u.x);
+    float r = sqrt(1 - POW2(u.x));
     vec3 p = vec3(r * vec2(cos(TWOPI * u.y), sin(TWOPI * u.y)), u.x);
     return sign(dot(p, normal)) * p;
 }
@@ -88,3 +91,5 @@ vec3 sampleCosineHemisphere(vec3 normal, inout uint previous) {
     float r = 1 - u.x;
     return sqrt(u.x) * normal + r * sin(TWOPI * u.y) * bitangent + r * cos(TWOPI * u.y) * tangent;
 }
+
+#endif
