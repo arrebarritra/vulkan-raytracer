@@ -38,7 +38,7 @@ Application::Application(std::string appName, uint32_t width, uint32_t height, c
 
 	// Get required GLFW extensions
 	glfwInit();
-	camera.aspect = width / height;
+	camera.aspect = width / static_cast<float>(height);
 	uint32_t glfwReqExtCount;
 	auto glfwReqExt = glfwGetRequiredInstanceExtensions(&glfwReqExtCount);
 	std::vector<const char*> glfwExtensions(glfwReqExtCount);
@@ -316,7 +316,7 @@ void Application::handleResize() {
 	}
 
 	framebufferResized = false;
-	camera.aspect = width / height;
+	camera.aspect = width / static_cast<float>(height);
 	recreateSwapchain();
 }
 
