@@ -1,7 +1,7 @@
 struct Vertex {
 	vec3 pos, normal;
 	vec4 tangent;
-	vec2 uv0, uv1;
+	vec2 uv;
 };
 
 struct GeometryInfo {

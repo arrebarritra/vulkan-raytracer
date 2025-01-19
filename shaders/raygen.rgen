@@ -8,7 +8,6 @@
 #include "payload.glsl"
 #include "random.glsl"
 #include "hdr.glsl"
-#include "bsdf.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D accumulationImage;
@@ -20,6 +19,7 @@ layout(binding = 3, set = 0, scalar) uniform CameraProperties {
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
     uint sampleCount, maxRayDepth;
 } pathTracing;
+#include "bsdf.glsl"
 
 layout(location = 0) rayPayloadEXT PathTracingPayload payload;
 
@@ -32,9 +32,9 @@ void main() {
     vec2 d = inUV * 2.0 - 1.0;
     d.y = -d.y;
 
-    payload.rayOrigin = vec3(cam.viewInverse * vec4(0,0,0,1));
+    vec3 origin = vec3(cam.viewInverse * vec4(0,0,0,1));
     vec3 target = vec3(cam.projInverse * vec4(d.x, d.y, 1, 1));
-    vec3 direction = vec3(cam.viewInverse * vec4(normalize(target.xyz), 0));
+    vec3 direction = normalize(vec3(cam.viewInverse * vec4(normalize(target.xyz), 0)));
 
     float tmin = 0.001;
     float tmax = 1000.0;
@@ -44,10 +44,9 @@ void main() {
     int i = 0;
     uint rayFlags = gl_RayFlagsNoneEXT;
     for (int i = 0; true; i++) {
-        traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, payload.rayOrigin, tmin, direction, tmax, 0);
-
+        traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, origin, tmin, direction, tmax, 0);
         value += currentPath * payload.emittedLight;
-        if (payload.emittedLight != vec3(0.0) || payload.hitNormal == vec3(-1.0) || i == pathTracing.maxRayDepth - 1)
+        if (dot(currentPath, currentPath) < 0.01 || payload.emittedLight != vec3(0.0) || payload.hitNormal == vec3(0.0) || i == pathTracing.maxRayDepth - 1)
             break;
 
 //        value += currentPath *  payload.baseColour * payload.directLight;
@@ -56,14 +55,15 @@ void main() {
             break;
         }
 
-        vec3 oldDirection = direction;
-        bool transmitted = rnd(seed) < payload.transmissionFactor;
-        if (!transmitted)
-            direction = sampleCosineHemisphere(payload.hitNormal, seed);
-        payload.rayOrigin = payload.hitPos + BIAS * (transmitted ? -1.0 : 1.0) * payload.hitNormal;
+        vec3 estimator;
+        vec3 oldDir = direction;
+//        bool transmitted = rnd(seed) < payload.transmissionFactor;
+//        if (!transmitted)
+        direction = sampleMaterial(seed, payload.baseColour, payload.metallic, payload.roughness, payload.ior, payload.hitNormal, -direction, estimator);
+        if (estimator == vec3(0.0)) break;
+        origin = payload.hitPos + BIAS * payload.hitNormal;
 
-        vec3 bsdf = materialBSDF(payload.baseColour, payload.metallic, payload.roughness, payload.ior, payload.hitNormal, -oldDirection, direction, normalize(direction - oldDirection));
-        currentPath *= bsdf * PI;
+        currentPath *= estimator;
     }
 
     if (pathTracing.sampleCount > 0u) {

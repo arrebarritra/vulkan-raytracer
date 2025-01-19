@@ -9,7 +9,7 @@ namespace vkrt {
 struct Vertex {
 	glm::vec3 position, normal;
 	glm::vec4 tangent;
-	glm::vec2 uv0, uv1;
+	glm::vec2 uv;
 };
 
 using Index = uint32_t;

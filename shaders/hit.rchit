@@ -42,55 +42,49 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     hitInfo.pos = vec3(0.0);
     hitInfo.normal = vec3(0.0);
     vec3 tangent = vec3(0.0);
+    float tangentSign = vertexBuffer.vertices[indexBuffer.indices[3*idx]].tangent.w;
     vec3 bitangent = vec3(0.0);
-    vec2 uv0 = vec2(0.0);
-    vec2 uv1 = vec2(0.0);
+    vec2 uv = vec2(0.0);
     for (int i = 0; i < 3; i++) {
         uint index = indexBuffer.indices[3 * idx + i];
         Vertex vertex = vertexBuffer.vertices[index];
 
         hitInfo.pos += vertex.pos * weights[i];
         hitInfo.normal += vertex.normal * weights[i];
-        if (material.normalTexIdx != -1) {
+        if (material.normalTexIdx != -1)
             tangent += vertex.tangent.xyz * weights[i];
-            bitangent += cross(hitInfo.normal, tangent) * vertex.tangent.w * weights[i];
-        }
-        uv0 += vertex.uv0 * weights[i];
-        uv1 += vertex.uv1 * weights[i];
+        uv += vertex.uv * weights[i];
     }
 
     hitInfo.pos = vec3(gl_ObjectToWorldEXT * vec4(hitInfo.pos, 1.0));
-    mat3 rotation = mat3(gl_WorldToObjectEXT);
+    mat3 rotation = transpose(mat3(gl_WorldToObjectEXT));
     hitInfo.normal = rotation * hitInfo.normal;
-    if (material.normalTexIdx != -1) {
+    if (material.normalTexIdx != -1)
         tangent = rotation * tangent;
-        bitangent = rotation * bitangent;
-    }
 
     hitInfo.baseColour = material.baseColourFactor.rgb;
     if (material.baseColourTexIdx != -1)
-        hitInfo.baseColour *= textureGet(material.baseColourTexIdx, uv0).rgb;
+        hitInfo.baseColour *= textureGet(material.baseColourTexIdx, uv).rgb;
     
     hitInfo.emissiveColour = material.emissiveFactor * material.emissiveStrength;
     if (material.emissiveTexIdx != -1)
-        hitInfo.emissiveColour *= textureGet(material.emissiveTexIdx, uv0).rgb;
+        hitInfo.emissiveColour *= textureGet(material.emissiveTexIdx, uv).rgb;
 
     hitInfo.transmissionFactor = material.transmissionFactor;
     if (material.transmissionTexIdx != -1)
-        hitInfo.transmissionFactor *= textureGet(material.transmissionTexIdx, uv0).r;
+        hitInfo.transmissionFactor *= textureGet(material.transmissionTexIdx, uv).r;
 
     hitInfo.normal = normalize(hitInfo.normal);
     if (material.normalTexIdx != -1) {
-        tangent = normalize(tangent);
-        bitangent = normalize(bitangent);
-        hitInfo.normal = mat3(tangent, bitangent, hitInfo.normal) * normalize(textureGet(material.normalTexIdx, uv0).rgb * 2.0 - 1.0);
+        tangent = normalize(tangent - dot(hitInfo.normal, tangent) * hitInfo.normal); // re-orthogonalise
+        bitangent = cross(hitInfo.normal, tangent) * tangentSign;
+        hitInfo.normal = mat3(tangent, bitangent, hitInfo.normal) * normalize(textureGet(material.normalTexIdx, uv).rgb * 2.0 - 1.0);
     }
-    hitInfo.normal = sign(dot(payloadIn.rayOrigin - hitInfo.pos, hitInfo.normal)) * hitInfo.normal;
-    
+    hitInfo.normal = (dot(hitInfo.normal, -gl_WorldRayDirectionEXT) >= 0 ? 1.0 : -1.0) * hitInfo.normal;
     hitInfo.roughness = material.roughnessFactor;
     hitInfo.metallic = material.metallicFactor;
     if (material.metallicRoughnessTexIdx != -1) {
-        vec2 metallicRoughness = textureGet(material.metallicRoughnessTexIdx, uv0).bg;
+        vec2 metallicRoughness = textureGet(material.metallicRoughnessTexIdx, uv).bg;
         hitInfo.metallic *= metallicRoughness.x;
         hitInfo.roughness *= metallicRoughness.y;
     }

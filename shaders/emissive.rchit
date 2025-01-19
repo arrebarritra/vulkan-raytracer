@@ -25,7 +25,7 @@ vec3 unpackTriangle(uint idx, vec3 weights) {
     for (int i = 0; i < 3; i++) {
         uint index = indexBuffer.indices[3 * idx + i];
         Vertex vertex = vertexBuffer.vertices[index];
-        uv0 += vertex.uv0 * weights[i];
+        uv0 += vertex.uv * weights[i];
     }
     vec3 emissiveColour = material.emissiveFactor * material.emissiveStrength;
     if (material.emissiveTexIdx != -1)

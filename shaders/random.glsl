@@ -63,33 +63,22 @@ vec3 rndCube(inout uint previous) {
     return vec3(rnd(previous), rnd(previous), rnd(previous));
 }
 
-// Building an Orthonormal Basis, Revisited
-// Tom Duff et. al: https://graphics.pixar.com/library/OrthonormalB/paper.pdf
-void branchlessONB(const vec3 n, out vec3 tangent, out vec3 bitangent)
-{
-    float sign = n.z > 0.0 ? 1.0 : -1.0;
-    const float a = -1.0f / (sign + n.z);
-    const float b = n.x * n.y * a;
-    tangent = vec3(1.0f + sign * POW2(n.x) * a, sign * b, -sign * n.x);
-    bitangent = vec3(b, sign + POW2(n.y) * a, -n.y);
-}
-
 // Uniformly random point on normal oriented hemisphere
-vec3 sampleUniformHemisphere(vec3 normal, inout uint previous) {
+vec3 sampleUniformHemisphere(inout uint previous, vec3 normal) {
     vec2 u = rndSquare(previous);
-    float r = sqrt(1 - POW2(u.x));
+    float r = sqrt(1 - u.x * u.x);
     vec3 p = vec3(r * vec2(cos(TWOPI * u.y), sin(TWOPI * u.y)), u.x);
     return sign(dot(p, normal)) * p;
 }
 
 // Uniformly random point on normal oriented hemisphere
-vec3 sampleCosineHemisphere(vec3 normal, inout uint previous) {
+vec3 sampleCosineHemisphere(inout uint previous, vec3 normal) {
     vec3 tangent, bitangent;
     branchlessONB(normal, tangent, bitangent);
     
     vec2 u = rndSquare(previous);
     float r = 1 - u.x;
-    return sqrt(u.x) * normal + r * sin(TWOPI * u.y) * bitangent + r * cos(TWOPI * u.y) * tangent;
+    return sqrt(r) * sin(TWOPI * u.y) * tangent + sqrt(r) * cos(TWOPI * u.y) * bitangent + sqrt(u.x) * normal;
 }
 
 #endif

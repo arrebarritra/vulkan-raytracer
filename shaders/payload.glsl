@@ -1,5 +1,4 @@
 struct PathTracingPayload {
-    vec3 rayOrigin;
     vec3 hitPos, hitNormal;
     vec3 baseColour, emittedLight, directLight;
     float roughness, metallic;

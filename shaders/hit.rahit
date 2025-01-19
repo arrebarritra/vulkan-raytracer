@@ -26,16 +26,16 @@ float unpackTriangle(uint idx, vec3 weights, out Material material) {
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
     
-    vec2 uv0 = vec2(0.0);
+    vec2 uv = vec2(0.0);
     for (int i = 0; i < 3; i++) {
         uint index = indexBuffer.indices[3 * idx + i];
         Vertex vertex = vertexBuffer.vertices[index];
-        uv0 += vertex.uv0 * weights[i];
+        uv += vertex.uv * weights[i];
     }
 
     float alpha = material.baseColourFactor.a;
     if (material.baseColourTexIdx != -1)
-        alpha *= textureGet(material.baseColourTexIdx, uv0).a;
+        alpha *= textureGet(material.baseColourTexIdx, uv).a;
     return alpha;
 }
 

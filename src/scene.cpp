@@ -39,6 +39,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	meshPool.reserve(meshPool.size() + model.meshes.size());
 	geometryInfos.reserve(geometryInfos.size() + model.meshes.size());
 	materials.reserve(materials.size() + model.materials.size());
+	bool validTangents = true;	
 	for (const auto& gltfMesh : model.meshes) {
 		std::vector<std::vector<Vertex>> primitiveVertices;
 		std::vector<std::vector<Index>> primitiveIndices;
@@ -52,8 +53,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 			{
 				const float* positionBuffer = nullptr;
 				const float* normalsBuffer = nullptr;
-				const float* texCoordsBuffer0 = nullptr;
-				const float* texCoordsBuffer1 = nullptr;
+				const float* texCoordsBuffer = nullptr;
 				const float* tangentsBuffer = nullptr;
 				size_t vertexCount = 0;
 
@@ -66,24 +66,21 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 				}
 
 				// Get buffer data for vertex normals
-				if (gltfPrimitive.attributes.find("NORMAL") != gltfPrimitive.attributes.end()) {
+				{
+					assert(gltfPrimitive.attributes.find("NORMAL") != gltfPrimitive.attributes.end());
 					const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("NORMAL")->second];
 					const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
 					normalsBuffer = reinterpret_cast<const float*>(&(model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
 				}
+
 				// Get buffer data for vertex texture coordinates
-				// glTF supports multiple sets, we only load the first one
 				if (gltfPrimitive.attributes.find("TEXCOORD_0") != gltfPrimitive.attributes.end()) {
 					const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("TEXCOORD_0")->second];
 					const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-					texCoordsBuffer0 = reinterpret_cast<const float*>(&(model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
+					texCoordsBuffer = reinterpret_cast<const float*>(&(model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
 				}
-				if (gltfPrimitive.attributes.find("TEXCOORD_1") != gltfPrimitive.attributes.end()) {
-					const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("TEXCOORD_1")->second];
-					const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-					texCoordsBuffer1 = reinterpret_cast<const float*>(&(model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
-				}
-				// POI: This sample uses normal mapping, so we also need to load the tangents from the glTF file
+				if (model.materials[gltfPrimitive.material].normalTexture.index != -1) assert(texCoordsBuffer);
+
 				if (gltfPrimitive.attributes.find("TANGENT") != gltfPrimitive.attributes.end()) {
 					const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("TANGENT")->second];
 					const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
@@ -95,10 +92,10 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 				for (size_t v = 0; v < vertexCount; v++) {
 					Vertex vertex;
 					vertex.position = glm::make_vec3(&positionBuffer[v * 3]);
-					vertex.normal = glm::normalize(glm::vec3(normalsBuffer ? glm::make_vec3(&normalsBuffer[v * 3]) : glm::vec3(0.0f)));
-					vertex.uv0 = texCoordsBuffer0 ? glm::make_vec2(&texCoordsBuffer0[v * 2]) : glm::vec3(0.0f);
-					vertex.uv1 = texCoordsBuffer1 ? glm::make_vec2(&texCoordsBuffer1[v * 2]) : glm::vec3(0.0f);
+					vertex.normal = glm::normalize(glm::vec3(glm::make_vec3(&normalsBuffer[v * 3])));
+					vertex.uv = texCoordsBuffer ? glm::make_vec2(&texCoordsBuffer[v * 2]) : glm::vec2(0.0f);
 					vertex.tangent = tangentsBuffer ? glm::make_vec4(&tangentsBuffer[v * 4]) : glm::vec4(0.0f);
+					if (tangentsBuffer && glm::cross(vertex.normal, glm::vec3(vertex.tangent)) == glm::vec3(0.0)) validTangents = false;
 					vertices.push_back(vertex);
 				}
 				primitiveVertices.push_back(std::move(vertices));
@@ -139,6 +136,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 		for (int i = 0; i < gltfMesh.primitives.size(); i++)
 			geometryInfos.emplace_back(device->getBufferAddress(**meshPool.back().vertexBuffers[i]), device->getBufferAddress(**meshPool.back().indexBuffers[i]), meshPool.back().materialIndices[i]);
 	}
+	if (!validTangents) LOG_ERROR("Mesh contains invalid tangents");
 
 	// Load materials and associated textures
 	LOG_INFO("Loading %d materials", model.materials.size());
