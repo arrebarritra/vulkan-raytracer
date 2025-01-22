@@ -39,7 +39,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	meshPool.reserve(meshPool.size() + model.meshes.size());
 	geometryInfos.reserve(geometryInfos.size() + model.meshes.size());
 	materials.reserve(materials.size() + model.materials.size());
-	bool validTangents = true;	
+	bool validTangents = true;
 	for (const auto& gltfMesh : model.meshes) {
 		std::vector<std::vector<Vertex>> primitiveVertices;
 		std::vector<std::vector<Index>> primitiveIndices;
@@ -222,6 +222,11 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	for (const auto& nodeIdx : model.scenes[0].nodes)
 		processModelRecursive(parent, model, model.nodes[nodeIdx], glm::mat4(1.0f));
 
+	if (emissiveTriangles.size() > 0) {
+		LOG_INFO("Normalising probability heuristic for %d emissive triangles", emissiveTriangles.size());
+		float totalHeuristic = emissiveTriangles.back().pHeuristic;
+		for (auto& emissiveTriangle : emissiveTriangles) emissiveTriangle.pHeuristic /= totalHeuristic;
+	}
 	LOG_INFO("Finished loading model %s", path.filename().string().c_str());
 }
 
@@ -258,6 +263,7 @@ void Scene::uploadResources() {
 	if (numDirectionalLights > 0)
 		directionalLightsBuffer->write({ static_cast<uint32_t>(numDirectionalLights * sizeof(DirectionalLight)), (char*)directionalLights.data() }, sizeof(uint32_t));
 
+	// Emissive surfaces and heuristic are also processed during scene traversal
 	uint32_t numEmissiveSurfaces = emissiveSurfaces.size();
 	auto emissiveSurfaceBufferCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(uint32_t) + numEmissiveSurfaces * sizeof(EmissiveSurface))
@@ -267,6 +273,16 @@ void Scene::uploadResources() {
 	emissiveSurfacesBuffer->write({ sizeof(uint32_t), (char*)&numEmissiveSurfaces });
 	if (numEmissiveSurfaces > 0)
 		emissiveSurfacesBuffer->write({ static_cast<uint32_t>(numEmissiveSurfaces * sizeof(EmissiveSurface)), (char*)emissiveSurfaces.data() }, sizeof(uint32_t));
+
+	uint32_t numEmissiveTriangles = emissiveTriangles.size();
+	auto emissiveTriangleBufferCI = vk::BufferCreateInfo{}
+		.setSize(sizeof(uint32_t) + numEmissiveTriangles * sizeof(EmissiveTriangle))
+		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst);
+	emissiveTrianglesBuffer = std::make_unique<Buffer>(device, dmm, rth, emissiveTriangleBufferCI, nullptr, MemoryStorage::DevicePersistent);
+
+	emissiveTrianglesBuffer->write({ sizeof(uint32_t), (char*)&numEmissiveTriangles });
+	if (numEmissiveTriangles > 0)
+		emissiveTrianglesBuffer->write({ static_cast<uint32_t>(numEmissiveTriangles * sizeof(EmissiveTriangle)), (char*)emissiveTriangles.data() }, sizeof(uint32_t));
 
 	LOG_INFO("Scene resources uploaded");
 }
@@ -314,13 +330,10 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 				const auto& gltfPrimitive = model.meshes[node.mesh].primitives[i];
 				EmissiveSurface es;
 				es.geometryIdx = meshPool[nodeMeshIdx].primitiveOffset + i;
-				const tinygltf::Accessor& accessor = model.accessors[gltfPrimitive.attributes.find("POSITION")->second];
-				if (accessor.minValues.size() != 3 || accessor.maxValues.size() != 3)
-					LOG_ERROR("Position accessor must contain number[3] min and max values");
-				es.minCoord = glm::make_vec3(accessor.minValues.data());
-				es.maxCoord = glm::make_vec3(accessor.maxValues.data());
+				es.baseEmissiveTriangleIdx = emissiveTriangles.size();
 				es.transform = currentTransform;
 				emissiveSurfaces.push_back(es);
+				processEmissivePrimitive(model, gltfPrimitive, currentTransform);
 			}
 		}
 	}
@@ -329,6 +342,62 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 	maxDepth = std::max(maxDepth, so.depth);
 	for (const auto& childNodeIdx : node.children)
 		processModelRecursive(&so, model, model.nodes[childNodeIdx], currentTransform);
+}
+
+// TODO: move to compute shader and account for emissive texture
+void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, const glm::mat4 transform) {
+	const float* positionBuffer = nullptr;
+
+	std::vector<Index> indices;
+	{
+		const tinygltf::Accessor& accessor = model.accessors[primitive.indices];
+		const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+		const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
+
+		// glTF supports different component types of indices
+		switch (accessor.componentType) {
+			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
+				const uint32_t* buf = reinterpret_cast<const uint32_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
+				indices.resize(accessor.count);
+				memcpy(indices.data(), buf, indices.size() * accessor.count);
+				break;
+			}
+			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {
+				const uint16_t* buf = reinterpret_cast<const uint16_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
+				for (size_t index = 0; index < accessor.count; index++)	indices.push_back(buf[index]);
+				break;
+			}
+			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE: {
+				const uint8_t* buf = reinterpret_cast<const uint8_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
+				for (size_t index = 0; index < accessor.count; index++)	indices.push_back(buf[index]);
+				break;
+			}
+			default:
+				LOG_ERROR("Index component type %s not supported!", accessor.componentType);
+				return;
+		}
+	}
+	{
+		assert(primitive.attributes.find("POSITION") != primitive.attributes.end());
+		const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.find("POSITION")->second];
+		const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
+		positionBuffer = reinterpret_cast<const float*>(&(model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
+		size_t vertexCount = accessor.count;
+	}
+
+	// Calculate intensity/area heuristic for each triangle
+	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
+	Material& mat = materials[primitive.material - baseMaterialOffset];
+	for (size_t i = 0; i < indices.size() / 3; i++) {
+		std::array v = {
+			glm::vec3(transform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i]]), 1.0f)),
+			glm::vec3(transform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 1]]), 1.0f)),
+			glm::vec3(transform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 2]]), 1.0f))
+		};
+		float area = glm::length(glm::cross(v[1] - v[0], v[2] - v[0])) / 2.0f;
+		float heuristic = area * mat.emissiveStrength * glm::dot(mat.emissiveFactor, glm::vec3(0.2126, 0.7152, 0.0722));
+		emissiveTriangles.push_back({ (emissiveTriangles.size() > 0 ? emissiveTriangles.back().pHeuristic : 0.0f) + heuristic });
+	}
 }
 
 }

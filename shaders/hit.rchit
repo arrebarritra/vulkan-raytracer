@@ -10,19 +10,17 @@
 #include "payload.glsl"
 #include "geometry.glsl"
 #include "material.glsl"
-#include "light.glsl"
 #include "texture.glsl"
 #include "constants.glsl"
 #include "random.glsl"
+#include "bsdf.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
     uint sampleCount, maxRayDepth;
 } pathTracing;
 
-layout(location = 0) rayPayloadInEXT PathTracingPayload payloadIn;
-layout(location = 1) rayPayloadEXT ShadowPayload shadowRayPayload;
-layout(location = 2) rayPayloadEXT EmissivePayload emissiveRayPayload;
+layout(location = 0) rayPayloadInEXT RayPayload payloadIn;
 hitAttributeEXT vec2 attribs;
 
 struct HitInfo {
@@ -32,12 +30,15 @@ struct HitInfo {
     float transmissionFactor;
 };
 
+#include "light.glsl"
+
 HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
     material = materials[geometryInfo.materialIdx];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
-    
+    vec3 view = -gl_WorldRayDirectionEXT;
+
     HitInfo hitInfo;
     hitInfo.pos = vec3(0.0);
     hitInfo.normal = vec3(0.0);
@@ -80,7 +81,7 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
         bitangent = cross(hitInfo.normal, tangent) * tangentSign;
         hitInfo.normal = mat3(tangent, bitangent, hitInfo.normal) * normalize(textureGet(material.normalTexIdx, uv).rgb * 2.0 - 1.0);
     }
-    hitInfo.normal = (dot(hitInfo.normal, -gl_WorldRayDirectionEXT) >= 0 ? 1.0 : -1.0) * hitInfo.normal;
+    hitInfo.normal = (dot(hitInfo.normal, view) >= 0 ? 1.0 : -1.0) * hitInfo.normal;
     hitInfo.roughness = material.roughnessFactor;
     hitInfo.metallic = material.metallicFactor;
     if (material.metallicRoughnessTexIdx != -1) {
@@ -96,71 +97,57 @@ void main() {
     uint seed = tea(gl_PrimitiveID * gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount);
 
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
+    vec3 view = -gl_WorldRayDirectionEXT;
     Material mat;
     HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords, mat);
 
-    payloadIn.directLight = vec3(0.0);
+    payloadIn.lightSample = vec3(0.0);
+    vec3 lightDir;
+    float pdfLightSample = 0.0;
+    bool analyticLight = rnd(seed) < 0.5;
+    uint numAnalyticLights = numPointLights + numDirectionalLights;
     if (hitInfo.emissiveColour == vec3(0.0)) {
         // Calculate direct light contribution from point and directional lights, and emissive surfaces
         vec3 shadowRayOrigin = hitInfo.pos + BIAS * hitInfo.normal;
 
-        uint numLights = numPointLights + numDirectionalLights + numEmissiveSurfaces;
-        int lightIdx = rnd(seed, 0, int(numLights - 1));
-        if (lightIdx < numPointLights) {
-            PointLight light = pointLights[lightIdx];
-            vec3 lightRay = light.position - shadowRayOrigin;
-            float lightDist = length(lightRay);
-            vec3 lightDir = lightRay / lightDist;
-    
-            shadowRayPayload.shadowRayMiss = false;
-            traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, lightDir, lightDist, 1);
-            if (shadowRayPayload.shadowRayMiss) {
-                float k_d = dot(hitInfo.normal, lightDir);
-                float attenuation = light.range == 0.0 ? 1.0 : max(1.0 - pow(lightDist / light.range, 4), 0.0);
-                attenuation /= lightDist * lightDist;
-                attenuation = min(attenuation, 1.0);
-                payloadIn.directLight += k_d * light.colour;
-            }
-        } else if (lightIdx < numPointLights + numDirectionalLights) {
-            DirectionalLight light = directionalLights[lightIdx - numPointLights];
-    
-            shadowRayPayload.shadowRayMiss = false;
-            traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, shadowRayOrigin, 0.0, -light.direction, 10000.0, 1);
-            if (shadowRayPayload.shadowRayMiss) {
-                float k_d = dot(hitInfo.normal, -light.direction);
-                payloadIn.directLight += k_d * light.colour;
-            }
-        } else {
-            EmissiveSurface es = emissiveSurfaces[lightIdx - numDirectionalLights - numPointLights];
-            vec3 worldPoint = vec3(es.transform * vec4(es.minCoord + rndCube(seed) * (es.maxCoord - es.minCoord), 1.0));
-            vec3 lightRay = worldPoint - shadowRayOrigin;
-            float lightDist = length(lightRay);
-            vec3 lightDir = lightRay / lightDist;
-            
-            emissiveRayPayload.instanceIdx = es.geometryIdx;
-            traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, 1, 0, 2, shadowRayOrigin, 0.0, lightDir, lightDist + BIAS, 2);
-        
-            if (emissiveRayPayload.instanceHit) {
-                float k_d = dot(hitInfo.normal, lightDir);
-                float attenuation = min(1.0, 1.0 / lightDist * lightDist);
-                payloadIn.directLight += emissiveRayPayload.emittedLight * k_d * attenuation;
-
-            }
+        if (analyticLight && numAnalyticLights > 0) {
+            payloadIn.lightSample = sampleAnalyticLight(seed, shadowRayOrigin, hitInfo.normal);
+            pdfLightSample = numAnalyticLights;
+        } else if(numEmissiveTriangles > 0) {
+            payloadIn.lightSample = sampleEmissiveTriangle(seed, shadowRayOrigin, hitInfo.normal, pdfLightSample);
         }
-        payloadIn.directLight /= numLights;
     }
+    pdfLightSample /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
+
+    // Calculate Monte Carlo estimator term for light sampling and material sampling, sample new direction
+//    bool transmitted = rnd(seed) < payloadIn.transmissionFactor;
+//    if (!transmitted)
     
-    payloadIn.hitPos = hitInfo.pos;
-    payloadIn.hitNormal = hitInfo.normal;
+    payloadIn.origin = hitInfo.pos + BIAS * hitInfo.normal;
+    
+    // Evaluate material sampling
+    {
+        payloadIn.direction = sampleMaterial(seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view);
+        vec3 halfway = normalize(view + payloadIn.direction);
+        vec3 bsdf = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
+        float pdf = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
+        payloadIn.reflectivity = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdf * dot(hitInfo.normal, payloadIn.direction);
+    }
+
+    // Evaluate direct light sampling
+    {
+        vec3 halfway = normalize(view + lightDir);
+        vec3 bsdf = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
+        pdfLightSample += materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
+        pdfLightSample /= 2.0;
+
+        payloadIn.lightSample = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdfLightSample * dot(hitInfo.normal, lightDir);
+    }
+
+
     payloadIn.emittedLight = hitInfo.emissiveColour;
-    payloadIn.baseColour = hitInfo.baseColour.rgb;
-    payloadIn.roughness = hitInfo.roughness;
-    payloadIn.metallic = hitInfo.metallic;
-    payloadIn.transmissionFactor = hitInfo.transmissionFactor;
-    payloadIn.ior = mat.ior;
-    payloadIn.thin = mat.thicknessFactor == 0;
-    if (payloadIn.thin) {
-        payloadIn.attenuationDistance = mat.attenuationDistance;
-        payloadIn.attenuationColour = mat.attenuationColour;
+    if (hitInfo.emissiveColour != vec3(0.0)) payloadIn.scatter = false;
+    if (pathTracing.sampleCount == 0u && payloadIn.emittedLight == vec3(0.0)) {
+        payloadIn.emittedLight = hitInfo.baseColour;
     }
 }

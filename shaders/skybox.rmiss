@@ -2,11 +2,10 @@
 #extension GL_EXT_ray_tracing : enable
 
 #include "payload.glsl"
-layout(location = 0) rayPayloadInEXT PathTracingPayload payload;
+layout(location = 0) rayPayloadInEXT RayPayload payload;
 
 void main() {
-    payload.hitNormal = vec3(0.0);
-    payload.baseColour = vec3(0.0);
     payload.emittedLight = 15.0 * vec3(0.6, 0.8, 0.95);
-    payload.directLight = vec3(0.0);
+    payload.lightSample = vec3(0.0);
+    payload.scatter = false;
 }

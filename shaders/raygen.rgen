@@ -21,20 +21,21 @@ layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
 } pathTracing;
 #include "bsdf.glsl"
 
-layout(location = 0) rayPayloadEXT PathTracingPayload payload;
+layout(location = 0) rayPayloadEXT RayPayload payload;
 
 void main() {
     uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount);
-    vec2 jitter = vec2(rnd(seed), rnd(seed));
+    vec2 jitter = pathTracing.sampleCount == 0u ? vec2(0.5, 0.5) : vec2(rnd(seed), rnd(seed));
 
     const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + jitter;
     const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
     vec2 d = inUV * 2.0 - 1.0;
     d.y = -d.y;
 
-    vec3 origin = vec3(cam.viewInverse * vec4(0,0,0,1));
     vec3 target = vec3(cam.projInverse * vec4(d.x, d.y, 1, 1));
-    vec3 direction = normalize(vec3(cam.viewInverse * vec4(normalize(target.xyz), 0)));
+    payload.origin = vec3(cam.viewInverse * vec4(0,0,0,1));
+    payload.direction = normalize(vec3(cam.viewInverse * vec4(normalize(target.xyz), 0)));
+    payload.scatter = true;
 
     float tmin = 0.001;
     float tmax = 1000.0;
@@ -44,26 +45,14 @@ void main() {
     int i = 0;
     uint rayFlags = gl_RayFlagsNoneEXT;
     for (int i = 0; true; i++) {
-        traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, origin, tmin, direction, tmax, 0);
-        value += currentPath * payload.emittedLight;
-        if (dot(currentPath, currentPath) < 0.01 || payload.emittedLight != vec3(0.0) || payload.hitNormal == vec3(0.0) || i == pathTracing.maxRayDepth - 1)
-            break;
-
-//        value += currentPath *  payload.baseColour * payload.directLight;
-        if (pathTracing.sampleCount == 0u) {
-            value += 0.5 * payload.baseColour;
+        traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, payload.origin, tmin, payload.direction, tmax, 0);
+        value += currentPath * (payload.emittedLight + payload.lightSample);
+        if (!payload.scatter || i == pathTracing.maxRayDepth || pathTracing.sampleCount == 0u) {
+            value /= float(i + 2); // average contribution from (i + 1) direct light sample paths and 1 material sample path
             break;
         }
 
-        vec3 estimator;
-        vec3 oldDir = direction;
-//        bool transmitted = rnd(seed) < payload.transmissionFactor;
-//        if (!transmitted)
-        direction = sampleMaterial(seed, payload.baseColour, payload.metallic, payload.roughness, payload.ior, payload.hitNormal, -direction, estimator);
-        if (estimator == vec3(0.0)) break;
-        origin = payload.hitPos + BIAS * payload.hitNormal;
-
-        currentPath *= estimator;
+        currentPath *= payload.reflectivity;
     }
 
     if (pathTracing.sampleCount > 0u) {

@@ -18,9 +18,12 @@ struct DirectionalLight {
 };
 
 struct EmissiveSurface {
-	uint32_t geometryIdx;
-	glm::vec3 minCoord, maxCoord;
+	uint32_t geometryIdx, baseEmissiveTriangleIdx;
 	glm::mat4 transform;
+};
+
+struct EmissiveTriangle {
+	float pHeuristic;
 };
 
 }

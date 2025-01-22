@@ -46,9 +46,9 @@ Raytracer::Raytracer()
 	createImages();
 
 	// Create acceleration structure
-	scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
-	scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
-	//scene.loadModel(RESOURCE_DIR"Cornell-Box.gltf", &scene.root);
+	//scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
+	//scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
+	scene.loadModel(RESOURCE_DIR"CornellBox-Original.gltf", &scene.root);
 	scene.uploadResources();
 	rth->flushPendingTransfers();
 
@@ -186,16 +186,23 @@ void Raytracer::createRaytracingPipeline() {
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
-	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+	auto emissiveTrianglesBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(10u)
+		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
+		.setDescriptorCount(1u)
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+		.setBinding(11u)
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 		.setDescriptorCount(static_cast<uint32_t>(scene.texturePool.size()))
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	std::array layoutBindings = { accelerationStructureLB, accumulationImageLB, outputImageLB, uniformCameraPropsLB,
 									uniformPathTracingPropsLB, geometryInfoBufferLB, materialsBufferLB,
-									pointLightsBufferLB, directionalLightsBufferLB, emissiveSurfacesBufferLB, textureSamplersLB };
+									pointLightsBufferLB, directionalLightsBufferLB, emissiveSurfacesBufferLB, emissiveTrianglesBufferLB,
+									textureSamplersLB };
 
 	std::array descriptorBindingFlags = {
+		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
@@ -269,6 +276,8 @@ void Raytracer::createDescriptorSets() {
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 1},
+							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
+							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
@@ -380,10 +389,19 @@ void Raytracer::updateDescriptorSets() {
 		.setBufferInfo(emissiveSurfacesBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
+	auto emissiveTrianglesBufferDescriptor = vk::DescriptorBufferInfo{}
+		.setBuffer(**scene.emissiveTrianglesBuffer)
+		.setRange(scene.emissiveTrianglesBuffer->bufferCI.size);
+	auto emissiveTrianglesBufferWrite = vk::WriteDescriptorSet{}
+		.setDstSet(descriptorSet)
+		.setDstBinding(10u)
+		.setBufferInfo(emissiveTrianglesBufferDescriptor)
+		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+
 	std::vector<vk::WriteDescriptorSet> descriptorWrites = {
 		accelerationStructureWrite, accumulationImageWrite, outputImageWrite,
 		uniformCameraPropsWrite, uniformPathTracingPropsWrite,geometryInfoBufferWrite, materialsBufferWrite,
-		pointLightsBufferWrite, directionalLightsBufferWrite, emissiveSurfacesBufferWrite
+		pointLightsBufferWrite, directionalLightsBufferWrite, emissiveSurfacesBufferWrite, emissiveTrianglesBufferWrite
 	};
 
 	std::vector<vk::DescriptorImageInfo> textureDescriptors;
@@ -394,7 +412,7 @@ void Raytracer::updateDescriptorSets() {
 		}
 		auto& textureWrites = vk::WriteDescriptorSet{}
 			.setDstSet(descriptorSet)
-			.setDstBinding(10u)
+			.setDstBinding(11u)
 			.setImageInfo(textureDescriptors)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 

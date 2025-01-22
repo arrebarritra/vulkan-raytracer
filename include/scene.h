@@ -54,9 +54,10 @@ public:
 	std::vector<PointLight> pointLights;
 	std::vector<DirectionalLight> directionalLights;
 	std::vector<EmissiveSurface> emissiveSurfaces;
+	std::vector<EmissiveTriangle> emissiveTriangles;
 	std::vector<std::tuple<LightTypes, uint32_t>> lightGlobalToTypeIndex;
 
-	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer, pointLightsBuffer, directionalLightsBuffer, emissiveSurfacesBuffer;
+	std::unique_ptr<Buffer> geometryInfoBuffer, materialsBuffer, pointLightsBuffer, directionalLightsBuffer, emissiveSurfacesBuffer, emissiveTrianglesBuffer;
 
 	SceneObject& addNode(SceneObject* parent, glm::mat4& transform = glm::mat4(1.0f), int meshIdx = -1);
 	void loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4& transform = glm::mat4(1.0f));
@@ -123,6 +124,7 @@ public:
 
 private:
 	void processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
+	void processEmissivePrimitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, const glm::mat4 transform);
 
 	vk::SharedDevice device;
 	DeviceMemoryManager& dmm;

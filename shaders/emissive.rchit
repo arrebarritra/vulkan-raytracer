@@ -21,21 +21,22 @@ vec3 unpackTriangle(uint idx, vec3 weights) {
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
     
-    vec2 uv0 = vec2(0.0);
+    vec2 uv = vec2(0.0);
     for (int i = 0; i < 3; i++) {
         uint index = indexBuffer.indices[3 * idx + i];
         Vertex vertex = vertexBuffer.vertices[index];
-        uv0 += vertex.uv * weights[i];
+        uv += vertex.uv * weights[i];
     }
     vec3 emissiveColour = material.emissiveFactor * material.emissiveStrength;
     if (material.emissiveTexIdx != -1)
-        emissiveColour *= textureGet(material.emissiveTexIdx, uv0).rgb;
+        emissiveColour *= textureGet(material.emissiveTexIdx, uv).rgb;
     return emissiveColour;
 }
 
 void main() {
     payload.instanceHit = false;
-    if (gl_InstanceCustomIndexEXT == payload.instanceIdx) {
+    if (gl_InstanceCustomIndexEXT == payload.instanceGeometryIdx && gl_PrimitiveID == payload.instancePrimitiveIdx) {
+        debugPrintfEXT("Emissive hit");
         payload.instanceHit = true;
         const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
         payload.emittedLight = unpackTriangle(gl_PrimitiveID, barycentricCoords);

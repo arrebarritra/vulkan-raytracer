@@ -70,17 +70,6 @@ vec3 fresnelSchlick(vec3 f0, vec3 V, vec3 H) {
 	return mix(vec3(pow(1 - VdotH, 5)), vec3(1), f0);
 }
 
-vec3 materialBSDF(vec3 baseColour, float metallic, float roughness, float ior, vec3 N, vec3 V, vec3 L, vec3 H) {
-	vec3 diffuseColour = mix(baseColour, vec3(0.0), metallic);
-	float f0Dielectric = (ior - 1) / (ior + 1);
-	f0Dielectric = f0Dielectric * f0Dielectric;
-	vec3 specularColour = mix(vec3(f0Dielectric), baseColour, metallic);
-	float alpha = roughness * roughness;
-
-	vec3 F = fresnelSchlick(specularColour, V, H);
-	return mix(diffuseBRDF(diffuseColour, N, L), vec3(specularBRDF(alpha, N, V, L, H)), F);
-}
-
 vec3 sampleDiffuse(inout uint previous, vec3 normal) {
 	return sampleCosineHemisphere(previous, normal);
 }
@@ -115,7 +104,27 @@ vec3 sampleGGXVNDF(inout uint previous, float alpha, vec3 normal, vec3 view) {
 	return TBN * tangentMicrofacetNormal;
 }
 
-vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float roughness, float ior, vec3 normal, vec3 view, out vec3 estimator) {
+float materialPDF(vec3 baseColour, float metallic, float roughness, float ior, vec3 N, vec3 V, vec3 L, vec3 H) {
+	float alpha = roughness * roughness;
+	float pDiffuse = min(0.75 * (1 - metallic), 0.5 * roughness + 0.25);
+	float NdotV = dot(N, V);
+	float NdotL = dot(N, L);
+
+	return mix(D_GGX(alpha, N, H) * G_1(alpha, N, V) / (4 * NdotV), NdotL * PIINV, pDiffuse);
+}
+
+vec3 materialBSDF(vec3 baseColour, float metallic, float roughness, float ior, vec3 N, vec3 V, vec3 L, vec3 H) {
+	vec3 diffuseColour = mix(baseColour, vec3(0.0), metallic);
+	float f0Dielectric = (ior - 1) / (ior + 1);
+	f0Dielectric = f0Dielectric * f0Dielectric;
+	vec3 specularColour = mix(vec3(f0Dielectric), baseColour, metallic);
+	float alpha = roughness * roughness;
+
+	vec3 F = fresnelSchlick(specularColour, V, H);
+	return mix(diffuseBRDF(diffuseColour, N, L), vec3(specularBRDF(alpha, N, V, L, H)), F);
+}
+
+vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float roughness, float ior, vec3 normal, vec3 view) {
 	vec3 diffuseColour = mix(baseColour, vec3(0.0), metallic);
 	float alpha = roughness * roughness;
 	float f0Dielectric = (ior - 1) / (ior + 1);
@@ -126,19 +135,11 @@ vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float 
 	float pDiffuse = min(0.75 * (1 - metallic), 0.5 * roughness + 0.25);
 	bool diffuse = rnd(previous) < pDiffuse;
 	if (diffuse) {
-		direction = sampleDiffuse(previous, normal);
-		halfway = normalize(view + direction);
+		return sampleDiffuse(previous, normal);
 	} else {
 		halfway = sampleGGXVNDF(previous, alpha, normal, view);
-		direction = reflect(-view, halfway);
+		return reflect(-view, halfway);
 	}
-	
-	float NdotL = dot(normal, direction);
-	float NdotV = dot(normal, view);
-	float pdf = mix(D_GGX(alpha, normal, halfway) * G_1(alpha, normal, view) / (4 * NdotV), 0.5 * NdotL * PIINV, pDiffuse);
-	vec3 bsdf = materialBSDF(baseColour, metallic, roughness, ior, normal, view, direction, halfway);
-	estimator = NdotL > 0.0 ? bsdf / pdf * NdotL : vec3(0.0);
-	return direction;
 }
 
 #endif
