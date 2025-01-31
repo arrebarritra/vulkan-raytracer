@@ -40,8 +40,7 @@ layout(binding = 10, set = 0, scalar) readonly buffer EmissiveTriangles{
 layout(location = 1) rayPayloadEXT ShadowPayload shadowRayPayload;
 layout(location = 2) rayPayloadEXT EmissivePayload emissiveRayPayload;
 
-vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal) {
-    vec3 lightDir;
+vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal, out vec3 lightDir) {
     uint numAnalyticLights = numPointLights + numDirectionalLights;
     int lightIdx = rnd(seed, 0, int(numAnalyticLights - 1));
     if (lightIdx < numPointLights) {
@@ -51,7 +50,7 @@ vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal) {
         lightDir = lightRay / lightDist;
 
         shadowRayPayload.shadowRayMiss = false;
-        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, origin, 0.0, lightDir, lightDist, 1);
+        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, origin, BIAS, lightDir, lightDist, 1);
         if (shadowRayPayload.shadowRayMiss) {
             float NdotL = dot(normal, lightDir);
             float attenuation = light.range == 0.0 ? 1.0 : max(1.0 - pow(lightDist / light.range, 4), 0.0);
@@ -64,7 +63,7 @@ vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal) {
 
         shadowRayPayload.shadowRayMiss = false;
         lightDir = -light.direction;
-        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, origin, 0.0, lightDir, 10000.0, 1);
+        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, origin, BIAS, lightDir, 10000.0, 1);
         if (shadowRayPayload.shadowRayMiss) {
             float NdotL = dot(normal, -light.direction);
             return NdotL * light.colour;
@@ -73,8 +72,7 @@ vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal) {
     return vec3(0.0);
 }
 
-vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out float pdf) {
-    vec3 lightDir;
+vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out vec3 lightDir, out float pdf) {
     uint triangleIdx;
     float pTriangle;
     // Binary search for triangle index
@@ -82,14 +80,16 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out float
         float p = rnd(seed);
         uint a = 0;
         uint b = numEmissiveTriangles - 1;
+        uint maxSteps = uint(log2(numEmissiveTriangles)) + 1u;
+        int i = 0;
         while (true) {
             uint mid = (a + b) / 2;
             float pLeft = mid == 0 ? 0.0 : emissiveTriangles[mid - 1].pHeuristic;
             float pRight = emissiveTriangles[mid].pHeuristic;
             if (p < pLeft) {
-                b = mid;
+                b = mid - 1;
             } else if (p > pRight) {
-                a = mid;
+                a = mid + 1;
             } else {
                 triangleIdx = mid;
                 pTriangle = pRight - pLeft;
@@ -103,14 +103,16 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out float
     {
         uint a = 0;
         uint b = numEmissiveSurfaces - 1;
+        uint maxSteps = uint(log2(numEmissiveSurfaces)) + 1u;
+        int i = 0;
         while (true) {
             uint mid = (a + b) / 2;
             uint idxLeft = emissiveSurfaces[mid].baseEmissiveTriangleIdx;
             uint idxRight = mid == numEmissiveSurfaces - 1 ? numEmissiveTriangles : emissiveSurfaces[mid + 1].baseEmissiveTriangleIdx;
             if (triangleIdx < idxLeft) {
-                b = mid;
+                b = mid - 1;
             } else if (triangleIdx > idxRight) {
-                a = mid;
+                a = mid + 1;
             } else {
                 surfaceIdx = mid;
                 break;
@@ -126,9 +128,11 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out float
 
     uint primitiveIdx = triangleIdx - es.baseEmissiveTriangleIdx;
     vec3 v[3];
-    v[0] = vec3(es.transform * vec4(vertexBuffer.vertices[indexBuffer.indices[3 * primitiveIdx]].pos, 1.0));
-    v[1] = vec3(es.transform * vec4(vertexBuffer.vertices[indexBuffer.indices[3 * primitiveIdx + 1]].pos, 1.0));
-    v[2] = vec3(es.transform * vec4(vertexBuffer.vertices[indexBuffer.indices[3 * primitiveIdx + 2]].pos, 1.0));
+    for (int i = 0; i < 3; i++) {
+        uint index = indexBuffer.indices[3 * primitiveIdx + i];
+        Vertex vertex = vertexBuffer.vertices[index];
+        v[i] = vec3(es.transform * vec4(vertex.pos, 1.0));
+    }
     pdf = pTriangle / (length(cross(v[1] - v[0], v[2] - v[0])) / 2.0);
 
     vec2 uv = rndSquare(seed);
@@ -145,7 +149,7 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out float
 
     emissiveRayPayload.instanceGeometryIdx = es.geometryIdx;
     emissiveRayPayload.instancePrimitiveIdx = primitiveIdx;
-    traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, 1, 0, 2, origin, 0.0, lightDir, lightDist + BIAS, 2);
+    traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, 1, 0, 2, origin, BIAS, lightDir, lightDist + BIAS, 2);
     if (emissiveRayPayload.instanceHit) {
         float NdotL = dot(normal, lightDir);
         float attenuation = min(1.0, 1.0 / lightDist * lightDist);

@@ -36,7 +36,6 @@ vec3 unpackTriangle(uint idx, vec3 weights) {
 void main() {
     payload.instanceHit = false;
     if (gl_InstanceCustomIndexEXT == payload.instanceGeometryIdx && gl_PrimitiveID == payload.instancePrimitiveIdx) {
-        debugPrintfEXT("Emissive hit");
         payload.instanceHit = true;
         const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
         payload.emittedLight = unpackTriangle(gl_PrimitiveID, barycentricCoords);

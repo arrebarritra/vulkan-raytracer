@@ -195,6 +195,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	LOG_INFO("Loading %d images", model.images.size());
 	for (const auto& gltfImage : model.images) {
 		texturePool.emplace_back(std::make_unique<Texture>(device, dmm, rth, path.parent_path() / std::filesystem::path(gltfImage.uri)));
+		rth.freeCompletedTransfers();
 	}
 
 	// Load lights
@@ -223,7 +224,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 		processModelRecursive(parent, model, model.nodes[nodeIdx], glm::mat4(1.0f));
 
 	if (emissiveTriangles.size() > 0) {
-		LOG_INFO("Normalising probability heuristic for %d emissive triangles", emissiveTriangles.size());
+		LOG_INFO("Normalising probability heuristic for %d emissive triangles (%d primitives)", emissiveTriangles.size(), emissiveSurfaces.size());
 		float totalHeuristic = emissiveTriangles.back().pHeuristic;
 		for (auto& emissiveTriangle : emissiveTriangles) emissiveTriangle.pHeuristic /= totalHeuristic;
 	}
@@ -359,7 +360,7 @@ void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinyglt
 			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
 				const uint32_t* buf = reinterpret_cast<const uint32_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
 				indices.resize(accessor.count);
-				memcpy(indices.data(), buf, indices.size() * accessor.count);
+				memcpy(indices.data(), buf, sizeof(uint32_t) * accessor.count);
 				break;
 			}
 			case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {

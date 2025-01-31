@@ -71,6 +71,13 @@ vec3 sampleUniformHemisphere(inout uint previous, vec3 normal) {
     return sign(dot(p, normal)) * p;
 }
 
+// Uniformly random point on hemisphere with normal (0, 0, 1)
+vec3 sampleCosineHemisphere(inout uint previous) {
+    vec2 u = rndSquare(previous);
+    float r = 1 - u.x;
+    return vec3(sqrt(r) * vec2(sin(TWOPI * u.y), cos(TWOPI * u.y)), sqrt(u.x));
+}
+
 // Uniformly random point on normal oriented hemisphere
 vec3 sampleCosineHemisphere(inout uint previous, vec3 normal) {
     vec3 tangent, bitangent;

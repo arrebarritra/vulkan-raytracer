@@ -24,7 +24,7 @@ layout(location = 0) rayPayloadInEXT RayPayload payloadIn;
 hitAttributeEXT vec2 attribs;
 
 struct HitInfo {
-    vec3 pos, normal, baseColour;
+    vec3 pos, normal, tangent, bitangent, baseColour;
     vec3 emissiveColour;
     float roughness, metallic;
     float transmissionFactor;
@@ -42,9 +42,9 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     HitInfo hitInfo;
     hitInfo.pos = vec3(0.0);
     hitInfo.normal = vec3(0.0);
-    vec3 tangent = vec3(0.0);
-    float tangentSign = vertexBuffer.vertices[indexBuffer.indices[3*idx]].tangent.w;
-    vec3 bitangent = vec3(0.0);
+    hitInfo.tangent = vec3(0.0);
+    hitInfo.bitangent = vec3(0.0);
+    float tangentSign = vertexBuffer.vertices[indexBuffer.indices[3 * idx]].tangent.w;
     vec2 uv = vec2(0.0);
     for (int i = 0; i < 3; i++) {
         uint index = indexBuffer.indices[3 * idx + i];
@@ -52,16 +52,11 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
 
         hitInfo.pos += vertex.pos * weights[i];
         hitInfo.normal += vertex.normal * weights[i];
-        if (material.normalTexIdx != -1)
-            tangent += vertex.tangent.xyz * weights[i];
+        hitInfo.tangent += vertex.tangent.xyz * weights[i];
         uv += vertex.uv * weights[i];
     }
 
     hitInfo.pos = vec3(gl_ObjectToWorldEXT * vec4(hitInfo.pos, 1.0));
-    mat3 rotation = transpose(mat3(gl_WorldToObjectEXT));
-    hitInfo.normal = rotation * hitInfo.normal;
-    if (material.normalTexIdx != -1)
-        tangent = rotation * tangent;
 
     hitInfo.baseColour = material.baseColourFactor.rgb;
     if (material.baseColourTexIdx != -1)
@@ -75,13 +70,22 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     if (material.transmissionTexIdx != -1)
         hitInfo.transmissionFactor *= textureGet(material.transmissionTexIdx, uv).r;
 
-    hitInfo.normal = normalize(hitInfo.normal);
-    if (material.normalTexIdx != -1) {
-        tangent = normalize(tangent - dot(hitInfo.normal, tangent) * hitInfo.normal); // re-orthogonalise
-        bitangent = cross(hitInfo.normal, tangent) * tangentSign;
-        hitInfo.normal = mat3(tangent, bitangent, hitInfo.normal) * normalize(textureGet(material.normalTexIdx, uv).rgb * 2.0 - 1.0);
+    mat3 rotation = transpose(mat3(gl_WorldToObjectEXT));
+    hitInfo.normal = normalize(rotation * hitInfo.normal);
+    if (hitInfo.tangent != vec3(0.0)) {
+        hitInfo.tangent = normalize(rotation * hitInfo.tangent);
+        hitInfo.tangent = normalize(hitInfo.tangent - dot(hitInfo.normal, hitInfo.tangent) * hitInfo.normal); // re-orthogonalise
+        hitInfo.bitangent = cross(hitInfo.normal, hitInfo.tangent) * tangentSign;
+        hitInfo.normal = mat3(hitInfo.tangent, hitInfo.bitangent, hitInfo.normal) * normalize(textureGet(material.normalTexIdx, uv).rgb * 2.0 - 1.0);
+        // orthogonalize against normal mapped normal
+        hitInfo.tangent = normalize(hitInfo.tangent - dot(hitInfo.normal, hitInfo.tangent) * hitInfo.normal); // re-orthogonalise
+        hitInfo.bitangent = cross(hitInfo.normal, hitInfo.tangent) * tangentSign;
+    } else {
+        branchlessONB(hitInfo.normal, hitInfo.tangent, hitInfo.bitangent);
     }
-    hitInfo.normal = (dot(hitInfo.normal, view) >= 0 ? 1.0 : -1.0) * hitInfo.normal;
+
+    hitInfo.normal *= dot(hitInfo.normal, view) >= 0.0 ? 1.0 : -1.0;
+
     hitInfo.roughness = material.roughnessFactor;
     hitInfo.metallic = material.metallicFactor;
     if (material.metallicRoughnessTexIdx != -1) {
@@ -94,7 +98,7 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
 }
 
 void main() {
-    uint seed = tea(gl_PrimitiveID * gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount);
+    uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount + 1);
 
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
     vec3 view = -gl_WorldRayDirectionEXT;
@@ -108,43 +112,37 @@ void main() {
     uint numAnalyticLights = numPointLights + numDirectionalLights;
     if (hitInfo.emissiveColour == vec3(0.0)) {
         // Calculate direct light contribution from point and directional lights, and emissive surfaces
-        vec3 shadowRayOrigin = hitInfo.pos + BIAS * hitInfo.normal;
+        vec3 shadowRayOrigin = hitInfo.pos;
 
         if (analyticLight && numAnalyticLights > 0) {
-            payloadIn.lightSample = sampleAnalyticLight(seed, shadowRayOrigin, hitInfo.normal);
+            payloadIn.lightSample = sampleAnalyticLight(seed, shadowRayOrigin, hitInfo.normal, lightDir);
             pdfLightSample = numAnalyticLights;
         } else if(numEmissiveTriangles > 0) {
-            payloadIn.lightSample = sampleEmissiveTriangle(seed, shadowRayOrigin, hitInfo.normal, pdfLightSample);
+            payloadIn.lightSample = sampleEmissiveTriangle(seed, shadowRayOrigin, hitInfo.normal, lightDir, pdfLightSample);
         }
     }
     pdfLightSample /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
 
     // Calculate Monte Carlo estimator term for light sampling and material sampling, sample new direction
-//    bool transmitted = rnd(seed) < payloadIn.transmissionFactor;
-//    if (!transmitted)
     
-    payloadIn.origin = hitInfo.pos + BIAS * hitInfo.normal;
-    
+    // Calculate tangent space vectors for sampling methods
+    mat3 TBN = mat3(hitInfo.tangent, hitInfo.bitangent, hitInfo.normal);
+    mat3 invTBN = transpose(TBN);
+    vec3 tView = invTBN * view;
+
     // Evaluate material sampling
-    {
-        payloadIn.direction = sampleMaterial(seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view);
-        vec3 halfway = normalize(view + payloadIn.direction);
-        vec3 bsdf = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
-        float pdf = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
-        payloadIn.reflectivity = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdf * dot(hitInfo.normal, payloadIn.direction);
-    }
+    payloadIn.direction = TBN * sampleMaterial(seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, payloadIn.reflectivity);
 
     // Evaluate direct light sampling
     {
-        vec3 halfway = normalize(view + lightDir);
-        vec3 bsdf = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
-        pdfLightSample += materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, mat.ior, hitInfo.normal, view, payloadIn.direction, halfway);
+        vec3 bsdf = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, invTBN * lightDir);
+        pdfLightSample += materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, invTBN * lightDir);
         pdfLightSample /= 2.0;
 
-        payloadIn.lightSample = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdfLightSample * dot(hitInfo.normal, lightDir);
+        payloadIn.lightSample *= bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdfLightSample * dot(hitInfo.normal, lightDir);
     }
 
-
+    payloadIn.origin = hitInfo.pos + (dot(payloadIn.direction, hitInfo.normal) >= 0.0 ? 1.0 : -1.0) * BIAS * hitInfo.normal;
     payloadIn.emittedLight = hitInfo.emissiveColour;
     if (hitInfo.emissiveColour != vec3(0.0)) payloadIn.scatter = false;
     if (pathTracing.sampleCount == 0u && payloadIn.emittedLight == vec3(0.0)) {
