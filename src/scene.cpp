@@ -8,7 +8,7 @@
 namespace vkrt {
 
 SceneObject::SceneObject(SceneObject* parent, glm::mat4& localTransform, int meshIdx)
-	: localTransform(localTransform), worldTransform(parent ? localTransform * parent->worldTransform : localTransform), parent(parent), meshIdx(meshIdx), depth(parent ? parent->depth + 1u : 0u) {}
+	: localTransform(localTransform), worldTransform(parent ? parent->worldTransform * localTransform : localTransform), parent(parent), meshIdx(meshIdx), depth(parent ? parent->depth + 1u : 0u) {}
 
 Scene::Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth)
 	: device(device), dmm(dmm), rth(rth), root(nullptr, glm::mat4(1.0f), -1), objectCount(0u), maxDepth(1u) {}
@@ -309,7 +309,7 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 			localTransform = glm::translate(static_cast<glm::vec3>(glm::make_vec3(node.translation.data()))) * localTransform;
 	}
 
-	glm::mat4 worldTransform = localTransform * parent->worldTransform;
+	glm::mat4 worldTransform = parent->worldTransform * localTransform;
 	if (node.light != -1) {
 		glm::vec3 translation;
 		glm::vec3 scale;
