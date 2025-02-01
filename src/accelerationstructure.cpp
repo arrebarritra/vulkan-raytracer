@@ -160,7 +160,7 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instanceBuffer, s
 		const Mesh& mesh = scene.meshPool[sceneObject.meshIdx];
 		for (int i = 0; i < mesh.primitiveCount; i++) {
 			std::array<std::array<float, 4Ui64>, 3Ui64> transformMatrix;
-			auto affineTransform = glm::mat3x4(glm::transpose(it.transform));
+			auto affineTransform = glm::mat3x4(glm::transpose(sceneObject.worldTransform));
 			memcpy(transformMatrix.data(), &affineTransform, sizeof(transformMatrix));
 
 			const auto& mat = scene.materials[scene.geometryInfos[mesh.primitiveOffset + i].materialIdx];

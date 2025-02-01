@@ -193,9 +193,7 @@ void Application::selectPhysicalDevice(bool preferDedicatedGPU) {
 				  return memA < memB;
 			  });
 	physicalDevice = eligibleDevices.front();
-#ifndef NDEBUG
 	LOG_INFO("Selected device: %s", physicalDevice.getProperties().deviceName.data());
-#endif
 }
 
 std::array<uint32_t, 3> Application::selectQueues(bool separateTransferQueue, bool separateComputeQueue) {

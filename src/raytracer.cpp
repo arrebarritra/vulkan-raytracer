@@ -48,7 +48,7 @@ Raytracer::Raytracer()
 	// Create acceleration structure
 	//scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
 	//scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
-	scene.loadModel(RESOURCE_DIR"cornell-box.gltf", &scene.root);
+	scene.loadModel(RESOURCE_DIR"cornell-box.gltf", &scene.root, glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2)));
 	scene.uploadResources();
 	rth->flushPendingTransfers();
 

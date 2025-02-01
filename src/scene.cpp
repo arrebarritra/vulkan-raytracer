@@ -7,20 +7,20 @@
 
 namespace vkrt {
 
-SceneObject::SceneObject(SceneObject* parent, glm::mat4& transform, int meshIdx)
-	: transform(transform), parent(parent), meshIdx(meshIdx), depth(parent ? parent->depth + 1u : 0u) {}
+SceneObject::SceneObject(SceneObject* parent, glm::mat4& localTransform, int meshIdx)
+	: localTransform(localTransform), worldTransform(parent ? localTransform * parent->worldTransform : localTransform), parent(parent), meshIdx(meshIdx), depth(parent ? parent->depth + 1u : 0u) {}
 
 Scene::Scene(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth)
 	: device(device), dmm(dmm), rth(rth), root(nullptr, glm::mat4(1.0f), -1), objectCount(0u), maxDepth(1u) {}
 
-SceneObject& Scene::addNode(SceneObject* parent, glm::mat4& transform, int meshIdx) {
+SceneObject& Scene::addNode(SceneObject* parent, glm::mat4& localTransform, int meshIdx) {
 	objectCount++;
-	auto& so = parent->children.emplace_back(parent, transform, meshIdx);
+	auto& so = parent->children.emplace_back(parent, localTransform, meshIdx);
 	maxDepth = std::max(maxDepth, so.depth);
 	return so;
 }
 
-void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4& transform) {
+void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4& localTransform) {
 	LOG_INFO("Loading model %s", path.filename().string().c_str());
 	tinygltf::Model model;
 	tinygltf::TinyGLTF context;
@@ -220,14 +220,10 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	}
 
 	LOG_INFO("Processing %d nodes", model.nodes.size());
+	auto& modelRoot = addNode(parent, localTransform);
 	for (const auto& nodeIdx : model.scenes[0].nodes)
-		processModelRecursive(parent, model, model.nodes[nodeIdx], glm::mat4(1.0f));
+		processModelRecursive(&modelRoot, model, model.nodes[nodeIdx]);
 
-	if (emissiveTriangles.size() > 0) {
-		LOG_INFO("Normalising probability heuristic for %d emissive triangles (%d primitives)", emissiveTriangles.size(), emissiveSurfaces.size());
-		float totalHeuristic = emissiveTriangles.back().pHeuristic;
-		for (auto& emissiveTriangle : emissiveTriangles) emissiveTriangle.pHeuristic /= totalHeuristic;
-	}
 	LOG_INFO("Finished loading model %s", path.filename().string().c_str());
 }
 
@@ -237,6 +233,12 @@ void Scene::uploadResources() {
 		.setSize(geometryInfos.size() * sizeof(GeometryInfo))
 		.setUsage(vk::BufferUsageFlagBits::eShaderDeviceAddress | vk::BufferUsageFlagBits::eStorageBuffer);
 	geometryInfoBuffer = std::make_unique<Buffer>(device, dmm, rth, geometryInfoBufferCI, vk::ArrayProxyNoTemporaries{ static_cast<uint32_t>(geometryInfoBufferCI.size), (char*)geometryInfos.data() }, MemoryStorage::DevicePersistent);
+
+	if (emissiveTriangles.size() > 0) {
+		LOG_INFO("Normalising probability heuristic for %d emissive triangles (%d primitives)", emissiveTriangles.size(), emissiveSurfaces.size());
+		float totalHeuristic = emissiveTriangles.back().pHeuristic;
+		for (auto& emissiveTriangle : emissiveTriangles) emissiveTriangle.pHeuristic /= totalHeuristic;
+	}
 
 	auto materialsBufferCI = vk::BufferCreateInfo{}
 		.setSize(materials.size() * sizeof(Material))
@@ -288,33 +290,33 @@ void Scene::uploadResources() {
 	LOG_INFO("Scene resources uploaded");
 }
 
-void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform) {
+void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node) {
 	uint32_t baseMeshOffset = meshPool.size() - model.meshes.size();
 	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
 	uint32_t baseLightOffset = lightGlobalToTypeIndex.size() - model.lights.size();
 
 	int nodeMeshIdx = node.mesh != -1 ? baseMeshOffset + node.mesh : -1;
 
-	glm::mat4 nodeTransform(1.0f);
+	glm::mat4 localTransform(1.0f);
 	if (node.matrix.size() != 0) {
-		nodeTransform = glm::make_mat4(node.matrix.data());
+		localTransform = glm::make_mat4(node.matrix.data());
 	} else {
 		if (node.scale.size() != 0)
-			nodeTransform = glm::scale(static_cast<glm::vec3>(glm::make_vec3(node.scale.data()))) * nodeTransform;
+			localTransform = glm::scale(static_cast<glm::vec3>(glm::make_vec3(node.scale.data()))) * localTransform;
 		if (node.rotation.size() != 0)
-			nodeTransform = glm::mat4(static_cast<glm::quat>(glm::make_quat(node.rotation.data()))) * nodeTransform;
+			localTransform = glm::mat4(static_cast<glm::quat>(glm::make_quat(node.rotation.data()))) * localTransform;
 		if (node.translation.size() != 0)
-			nodeTransform = glm::translate(static_cast<glm::vec3>(glm::make_vec3(node.translation.data()))) * nodeTransform;
+			localTransform = glm::translate(static_cast<glm::vec3>(glm::make_vec3(node.translation.data()))) * localTransform;
 	}
 
-	glm::mat4 currentTransform = nodeTransform * parentTransform;
+	glm::mat4 worldTransform = localTransform * parent->worldTransform;
 	if (node.light != -1) {
 		glm::vec3 translation;
 		glm::vec3 scale;
 		glm::quat rotation;
 		glm::vec3 dummy0;
 		glm::vec4 dummy1;
-		glm::decompose(currentTransform, dummy0, rotation, translation, dummy0, dummy1);
+		glm::decompose(worldTransform, dummy0, rotation, translation, dummy0, dummy1);
 
 		auto&& [lightType, index] = lightGlobalToTypeIndex[baseLightOffset + node.light];
 		if (lightType == LightTypes::Point) {
@@ -332,21 +334,21 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 				EmissiveSurface es;
 				es.geometryIdx = meshPool[nodeMeshIdx].primitiveOffset + i;
 				es.baseEmissiveTriangleIdx = emissiveTriangles.size();
-				es.transform = currentTransform;
+				es.transform = worldTransform;
 				emissiveSurfaces.push_back(es);
-				processEmissivePrimitive(model, gltfPrimitive, currentTransform);
+				processEmissivePrimitive(model, gltfPrimitive, worldTransform);
 			}
 		}
 	}
 
-	auto& so = addNode(parent, nodeTransform, nodeMeshIdx);
+	auto& so = addNode(parent, localTransform, nodeMeshIdx);
 	maxDepth = std::max(maxDepth, so.depth);
 	for (const auto& childNodeIdx : node.children)
-		processModelRecursive(&so, model, model.nodes[childNodeIdx], currentTransform);
+		processModelRecursive(&so, model, model.nodes[childNodeIdx]);
 }
 
 // TODO: move to compute shader and account for emissive texture
-void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, const glm::mat4 transform) {
+void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, const glm::mat4 worldTransform) {
 	const float* positionBuffer = nullptr;
 
 	std::vector<Index> indices;
@@ -391,9 +393,9 @@ void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinyglt
 	Material& mat = materials[primitive.material - baseMaterialOffset];
 	for (size_t i = 0; i < indices.size() / 3; i++) {
 		std::array v = {
-			glm::vec3(transform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i]]), 1.0f)),
-			glm::vec3(transform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 1]]), 1.0f)),
-			glm::vec3(transform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 2]]), 1.0f))
+			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i]]), 1.0f)),
+			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 1]]), 1.0f)),
+			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 2]]), 1.0f))
 		};
 		float area = glm::length(glm::cross(v[1] - v[0], v[2] - v[0])) / 2.0f;
 		float heuristic = area * mat.emissiveStrength * glm::dot(mat.emissiveFactor, glm::vec3(0.2126, 0.7152, 0.0722));
