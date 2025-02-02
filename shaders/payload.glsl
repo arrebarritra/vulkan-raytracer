@@ -9,6 +9,7 @@
 //};
 
 struct RayPayload {
+    uint seed;
     vec3 origin, direction;
     vec3 reflectivity, lightSample, emittedLight;
     bool scatter;

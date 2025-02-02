@@ -98,54 +98,48 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
 }
 
 void main() {
-    uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchIDEXT.x + gl_LaunchIDEXT.x, pathTracing.sampleCount + 1);
-
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
     vec3 view = -gl_WorldRayDirectionEXT;
     Material mat;
     HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords, mat);
 
-    payloadIn.lightSample = vec3(0.0);
-    vec3 lightDir;
-    float pdfLightSample = 0.0;
-    bool analyticLight = rnd(seed) < 0.5;
-    uint numAnalyticLights = numPointLights + numDirectionalLights;
-    if (hitInfo.emissiveColour == vec3(0.0)) {
-        // Calculate direct light contribution from point and directional lights, and emissive surfaces
-        vec3 shadowRayOrigin = hitInfo.pos;
-
-        if (analyticLight && numAnalyticLights > 0) {
-            payloadIn.lightSample = sampleAnalyticLight(seed, shadowRayOrigin, hitInfo.normal, lightDir);
-            pdfLightSample = numAnalyticLights;
-        } else if(numEmissiveTriangles > 0) {
-            payloadIn.lightSample = sampleEmissiveTriangle(seed, shadowRayOrigin, hitInfo.normal, lightDir, pdfLightSample);
-        }
+    payloadIn.emittedLight = hitInfo.emissiveColour;
+    if (hitInfo.emissiveColour != vec3(0.0)) {
+        payloadIn.scatter = false;
+        return;
     }
-    pdfLightSample /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
-
-    // Calculate Monte Carlo estimator term for light sampling and material sampling, sample new direction
     
     // Calculate tangent space vectors for sampling methods
     mat3 TBN = mat3(hitInfo.tangent, hitInfo.bitangent, hitInfo.normal);
-    mat3 invTBN = transpose(TBN);
+    mat3 invTBN = inverse(TBN);
     vec3 tView = invTBN * view;
 
     // Evaluate material sampling
-    payloadIn.direction = TBN * sampleMaterial(seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, payloadIn.reflectivity);
+    payloadIn.direction = TBN * sampleMaterial(payloadIn.seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, payloadIn.reflectivity);
 
     // Evaluate direct light sampling
-    {
-        vec3 bsdf = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, invTBN * lightDir);
-        pdfLightSample += materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, invTBN * lightDir);
-        pdfLightSample /= 2.0;
+    payloadIn.lightSample = vec3(0.0);
+    vec3 lightDir;
+    float lightSamplePDF = 0.0;
+    bool analyticLight = rnd(payloadIn.seed) < 0.5;
+    uint numAnalyticLights = numPointLights + numDirectionalLights;
 
-        payloadIn.lightSample *= bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdfLightSample * dot(hitInfo.normal, lightDir);
+    if (numAnalyticLights > 0 && (analyticLight || numEmissiveTriangles == 0)) {
+        payloadIn.lightSample = sampleAnalyticLight(payloadIn.seed, hitInfo.pos, hitInfo.normal, lightDir);
+        lightSamplePDF = numAnalyticLights;
+    } else if(numEmissiveTriangles > 0) {
+        payloadIn.lightSample = sampleEmissiveTriangle(payloadIn.seed, hitInfo.pos, hitInfo.normal, lightDir, lightSamplePDF);
     }
+    lightSamplePDF /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
+
+    vec3 lightSampleBSDF = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, invTBN * lightDir);
+    lightSamplePDF += materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, tView, invTBN * lightDir);
+    lightSamplePDF /= 2.0;
+
+    payloadIn.lightSample *= lightSampleBSDF == vec3(0.0) ? vec3(0.0) : lightSampleBSDF / lightSamplePDF;
 
     payloadIn.origin = hitInfo.pos + (dot(payloadIn.direction, hitInfo.normal) >= 0.0 ? 1.0 : -1.0) * BIAS * hitInfo.normal;
-    payloadIn.emittedLight = hitInfo.emissiveColour;
-    if (hitInfo.emissiveColour != vec3(0.0)) payloadIn.scatter = false;
     if (pathTracing.sampleCount == 0u && payloadIn.emittedLight == vec3(0.0)) {
-        payloadIn.emittedLight = hitInfo.baseColour;
+        payloadIn.emittedLight = payloadIn.reflectivity + payloadIn.lightSample;
     }
 }

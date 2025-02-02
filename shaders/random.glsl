@@ -45,12 +45,12 @@ float rnd(inout uint previous)
 
 // Generate random int in [min, max] given previous RNG state
 int rnd(inout uint previous, int min, int max) {
-    return int(min + rnd(previous) * (max - min + 1));
+    return int(lcg(previous) % (max - min + 1) + min);
 }
 
 // Generate random uint in [min, max] given previous RNG state
 uint rnd(inout uint previous, uint min, uint max) {
-    return uint(min + rnd(previous) * (max - min + 1u));
+    return uint(lcg(previous) % (max - min + 1) + min);
 }
 
 // Uniformly random point in square
@@ -63,29 +63,42 @@ vec3 rndCube(inout uint previous) {
     return vec3(rnd(previous), rnd(previous), rnd(previous));
 }
 
+// Uniformly random point on hemisphere with normal z+
+vec3 sampleUniformHemisphere(inout uint previous) {
+    vec2 u = rndSquare(previous);
+    float r = sqrt(1 - u.x * u.x);
+    return vec3(r * vec2(cos(TWOPI * u.y), sin(TWOPI * u.y)), u.x);
+}
+
 // Uniformly random point on normal oriented hemisphere
 vec3 sampleUniformHemisphere(inout uint previous, vec3 normal) {
     vec2 u = rndSquare(previous);
     float r = sqrt(1 - u.x * u.x);
     vec3 p = vec3(r * vec2(cos(TWOPI * u.y), sin(TWOPI * u.y)), u.x);
-    return sign(dot(p, normal)) * p;
+    return dot(p, normal) >= 0 ? p : -p;
 }
 
-// Uniformly random point on hemisphere with normal (0, 0, 1)
+// Cosine distributed point on hemisphere with normal z+
 vec3 sampleCosineHemisphere(inout uint previous) {
     vec2 u = rndSquare(previous);
-    float r = 1 - u.x;
-    return vec3(sqrt(r) * vec2(sin(TWOPI * u.y), cos(TWOPI * u.y)), sqrt(u.x));
+    float r = u.x;
+    vec3 p;
+    p.xy = r * vec2(sin(TWOPI * u.y), cos(TWOPI * u.y));
+    p.z = 1 - dot(p.xy, p.xy);
+    return p;
 }
 
-// Uniformly random point on normal oriented hemisphere
+// Cosine distributed point on normal oriented hemisphere
 vec3 sampleCosineHemisphere(inout uint previous, vec3 normal) {
     vec3 tangent, bitangent;
     branchlessONB(normal, tangent, bitangent);
     
+    vec3 p;
     vec2 u = rndSquare(previous);
-    float r = 1 - u.x;
-    return sqrt(r) * sin(TWOPI * u.y) * tangent + sqrt(r) * cos(TWOPI * u.y) * bitangent + sqrt(u.x) * normal;
+    float r = u.x;
+    p.xy = r * vec2(sin(TWOPI * u.y), cos(TWOPI * u.y));
+    p.z = 1 - dot(p.xy, p.xy);
+    return p.x * tangent + p.y * bitangent + p.z * normal;
 }
 
 #endif

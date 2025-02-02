@@ -80,7 +80,6 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out vec3 
         float p = rnd(seed);
         uint a = 0;
         uint b = numEmissiveTriangles - 1;
-        uint maxSteps = uint(log2(numEmissiveTriangles)) + 1u;
         int i = 0;
         while (true) {
             uint mid = (a + b) / 2;
@@ -103,7 +102,6 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out vec3 
     {
         uint a = 0;
         uint b = numEmissiveSurfaces - 1;
-        uint maxSteps = uint(log2(numEmissiveSurfaces)) + 1u;
         int i = 0;
         while (true) {
             uint mid = (a + b) / 2;
@@ -133,7 +131,7 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out vec3 
         Vertex vertex = vertexBuffer.vertices[index];
         v[i] = vec3(es.transform * vec4(vertex.pos, 1.0));
     }
-    pdf = pTriangle / (length(cross(v[1] - v[0], v[2] - v[0])) / 2.0);
+    pdf = pTriangle;
 
     vec2 uv = rndSquare(seed);
     // Invert points on parallelogram outside triangle
@@ -143,16 +141,18 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out vec3 
     }
     vec3 samplePoint = v[0] * uv.x + v[1] * uv.y + v[2] * (1 - uv.x - uv.y);
 
-    vec3 lightRay = samplePoint - origin;
+    vec3 rayOrigin = origin + BIAS * normal;
+    vec3 lightRay = samplePoint - rayOrigin;
     float lightDist = length(lightRay);
+    float lightDistSq = lightDist * lightDist;
     lightDir = lightRay / lightDist;
 
     emissiveRayPayload.instanceGeometryIdx = es.geometryIdx;
     emissiveRayPayload.instancePrimitiveIdx = primitiveIdx;
-    traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, 1, 0, 2, origin, BIAS, lightDir, lightDist + BIAS, 2);
+    traceRayEXT(topLevelAS, gl_RayFlagsNoneEXT, 0xFF, 1, 0, 2, rayOrigin, 0, lightDir, lightDist + EPS, 2);
     if (emissiveRayPayload.instanceHit) {
         float NdotL = dot(normal, lightDir);
-        float attenuation = min(1.0, 1.0 / lightDist * lightDist);
+        float attenuation = min(1.0, 1.0 / lightDistSq);
         return emissiveRayPayload.emittedLight * NdotL * attenuation;
     }
     return vec3(0.0);
