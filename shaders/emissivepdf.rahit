@@ -13,40 +13,53 @@
 #include "texture.glsl"
 #include "random.glsl"
 #include "payload.glsl"
+#include "light.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
     uint sampleCount, maxRayDepth;
 } pathTracing;
 
-layout(location = 0) rayPayloadInEXT RayPayload payload;
+layout(location = 3) rayPayloadInEXT EmissivePDFPayload payload;
 hitAttributeEXT vec2 attribs;
 
-float unpackTriangle(uint idx, vec3 weights, out Material material) {
+struct HitInfo {
+    vec3 normal;
+    float area;
+};
+
+HitInfo unpackTriangle(uint idx, vec3 weights) {
     GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
-    material = materials[geometryInfo.materialIdx];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
     
+    HitInfo hitInfo;
+    hitInfo.normal = vec3(0.0);
     vec2 uv = vec2(0.0);
+    vec3 v[3];
     for (int i = 0; i < 3; i++) {
         uint index = indexBuffer.indices[3 * idx + i];
         Vertex vertex = vertexBuffer.vertices[index];
+
+        v[i] = vec3(gl_ObjectToWorldEXT * vec4(vertex.pos, 1.0));
+        hitInfo.normal += vertex.normal * weights[i];
         uv += vertex.uv * weights[i];
     }
+    hitInfo.area = 0.5 * length(cross(v[1] - v[0], v[2] - v[0]));
+    hitInfo.normal = sign(dot(-gl_WorldRayDirectionEXT, hitInfo.normal)) * normalize(hitInfo.normal);
 
-    float alpha = material.baseColourFactor.a;
-    if (material.baseColourTexIdx != -1)
-        alpha *= textureGet(material.baseColourTexIdx, uv).a;
-    return alpha;
+    return hitInfo;
 }
 
 void main() {
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    Material mat;
-    float alpha = unpackTriangle(gl_PrimitiveID, barycentricCoords, mat);
+    HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords);
     
-    if ((mat.alphaMode == 1 && alpha < mat.alphaCutoff) || (mat.alphaMode == 2 && rnd(payload.seed) < (1 - alpha))) {
-        ignoreIntersectionEXT;
-    }
+    // We do not check if triangle is emissive since the ray cullMask will assure we only intersect emissive surfaces
+    EmissiveSurface es = emissiveSurfaces[gl_InstanceCustomIndexEXT];
+    float pTriangle = gl_PrimitiveID == 0 ? emissiveTriangles[es.baseEmissiveTriangleIdx].pHeuristic : 
+        emissiveTriangles[es.baseEmissiveTriangleIdx + gl_PrimitiveID].pHeuristic - emissiveTriangles[es.baseEmissiveTriangleIdx + gl_PrimitiveID - 1].pHeuristic;
+    payload.pdf += pTriangle * (gl_HitTEXT * gl_HitTEXT) / (hitInfo.area * dot(hitInfo.normal, -gl_WorldRayDirectionEXT));
+
+    ignoreIntersectionEXT;
 }

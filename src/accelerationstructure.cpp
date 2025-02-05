@@ -165,7 +165,7 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instanceBuffer, s
 
 			const auto& mat = scene.materials[scene.geometryInfos[mesh.primitiveOffset + i].materialIdx];
 			uint32_t objectMask = 1u;
-			if (mat.emissiveFactor == glm::vec3(0.0))
+			if (mat.emissiveFactor != glm::vec3(0.0))
 				objectMask |= 1u << 1;
 			instanceData.push_back(vk::AccelerationStructureInstanceKHR{}
 								   .setTransform(vk::TransformMatrixKHR{}.setMatrix(transformMatrix))

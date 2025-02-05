@@ -15,11 +15,11 @@
 #include "payload.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
+layout(binding = 4, set = 0, scalar) uniform PathTracingProperties {
     uint sampleCount, maxRayDepth;
 } pathTracing;
 
-layout(location = 0) rayPayloadInEXT RayPayload payload;
+layout(location = 1) rayPayloadInEXT ShadowPayload payload;
 hitAttributeEXT vec2 attribs;
 
 float unpackTriangle(uint idx, vec3 weights, out Material material) {

@@ -28,7 +28,11 @@ Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransfer
 						(!(memProps & vk::MemoryPropertyFlagBits::eHostVisible) ? vk::ImageUsageFlagBits::eTransferDst : vk::ImageUsageFlags{})))
 {
 	int x, y, n;
-	stbi_info(imageFile.string().c_str(), &x, &y, &n);
+	int stbires = stbi_info(imageFile.string().c_str(), &x, &y, &n);
+	if (stbires == 0) {
+		LOG_ERROR("STBI Error: %s", stbi_failure_reason());
+		return;
+	}
 	int requiredComponents = n == 3 ? 4 : n;
 	stbi_uc* imageData = stbi_load(imageFile.string().c_str(), &x, &y, &n, requiredComponents);
 	this->imageCI.setExtent(vk::Extent3D{ static_cast<uint32_t>(x), static_cast<uint32_t>(y), 1u });

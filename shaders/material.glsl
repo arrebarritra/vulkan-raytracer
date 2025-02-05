@@ -4,7 +4,6 @@ struct Material {
 	float alphaCutoff;
 	vec3 emissiveFactor;
 	float roughnessFactor, metallicFactor;
-	float emissiveStrength;
 	float transmissionFactor;
 	float thicknessFactor, attenuationDistance;
 	vec3 attenuationColour;

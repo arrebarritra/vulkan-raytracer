@@ -1,26 +1,23 @@
-//struct PathTracingPayload {
-//    vec3 hitPos, hitNormal;
-//    vec3 baseColour, emittedLight, directLight;
-//    float roughness, metallic;
-//    float transmissionFactor, ior;
-//    bool thin;
-//    float attenuationDistance;
-//    vec3 attenuationColour;
-//};
-
 struct RayPayload {
-    uint seed;
+    uint seed, bounce;
     vec3 origin, direction;
     vec3 reflectivity, lightSample, emittedLight;
+    float materialSamplePDF;
     bool scatter;
 };
 
 struct ShadowPayload {
+    uint seed;
     bool shadowRayMiss;
 };
 
 struct EmissivePayload {
+    uint seed;
     uint instanceGeometryIdx, instancePrimitiveIdx;
     bool instanceHit;
-    vec3 emittedLight;
+    vec3 normal, emittedLight;
+};
+
+struct EmissivePDFPayload {
+    float pdf;
 };

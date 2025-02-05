@@ -170,7 +170,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 
 		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); transmission != gltfMaterial.extensions.end()) {
 			if (transmission->second.Has("emissiveStrength"))
-				material.emissiveStrength = transmission->second.Get("emissiveStrength").GetNumberAsDouble();
+				material.emissiveFactor *= transmission->second.Get("emissiveStrength").GetNumberAsDouble();
 		}
 		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_transmission"); transmission != gltfMaterial.extensions.end()) {
 			if (transmission->second.Has("transmissionFactor"))
@@ -391,14 +391,14 @@ void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinyglt
 	// Calculate intensity/area heuristic for each triangle
 	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
 	Material& mat = materials[primitive.material - baseMaterialOffset];
-	for (size_t i = 0; i < indices.size() / 3; i++) {
+	for (size_t i = 0; i < indices.size() / 9; i++) {
 		std::array v = {
-			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i]]), 1.0f)),
-			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 1]]), 1.0f)),
-			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[indices[3 * i + 2]]), 1.0f))
+			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[3 * indices[3 * i]]), 1.0f)),
+			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[3 * indices[3 * i + 1]]), 1.0f)),
+			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[3 * indices[3 * i + 2]]), 1.0f))
 		};
 		float area = glm::length(glm::cross(v[1] - v[0], v[2] - v[0])) / 2.0f;
-		float heuristic = area * mat.emissiveStrength * glm::dot(mat.emissiveFactor, glm::vec3(0.2126, 0.7152, 0.0722));
+		float heuristic = area * glm::dot(mat.emissiveFactor, glm::vec3(0.2126, 0.7152, 0.0722));
 		emissiveTriangles.push_back({ (emissiveTriangles.size() > 0 ? emissiveTriangles.back().pHeuristic : 0.0f) + heuristic });
 	}
 }

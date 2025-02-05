@@ -46,9 +46,9 @@ Raytracer::Raytracer()
 	createImages();
 
 	// Create acceleration structure
-	//scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
-	//scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
-	scene.loadModel(RESOURCE_DIR"cornell-box.gltf", &scene.root);
+	scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
+	scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
+	//scene.loadModel(RESOURCE_DIR"lightspunctuallamp.gltf", &scene.root);
 	scene.uploadResources();
 	rth->flushPendingTransfers();
 
@@ -185,12 +185,12 @@ void Raytracer::createRaytracingPipeline() {
 		.setBinding(9u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto emissiveTrianglesBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(10u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(11u)
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
@@ -227,10 +227,12 @@ void Raytracer::createRaytracingPipeline() {
 
 	// Shaders
 	std::vector<std::string> raygenShaders = { "raygen.rgen" };
-	std::vector<std::string> missShaders = { "skybox.rmiss", "shadow.rmiss", "emissive.rmiss"};
+	std::vector<std::string> missShaders = { "skybox.rmiss", "shadow.rmiss", "pass.rmiss"};
 	std::vector<std::array<std::string, 3>> hitGroups = {
-		{"hit.rchit", "hit.rahit", ""},
-		{"emissive.rchit", "hit.rahit", ""}
+		{ "hit.rchit", "hit.rahit", "" },
+		{ "", "shadow.rahit", "" },
+		{ "emissive.rchit", "emissive.rahit", "" },
+		{ "", "emissivepdf.rahit", ""}
 	};
 	raytracingShaders = std::make_unique<RaytracingShaders>(device, raygenShaders, missShaders, hitGroups);
 

@@ -141,8 +141,9 @@ vec3 materialBSDF(vec3 baseColour, float metallic, float roughness, float transm
 	return vec3(0.0);
 }
 
-vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, vec3 view, out vec3 estimator) {
-	vec3 direction = vec3(0.0); vec3 bsdf = vec3(0.0); float pdf = 0.0;
+vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, vec3 view, out vec3 estimator, out float pdf) {
+	vec3 direction = vec3(0.0); vec3 bsdf = vec3(0.0);
+	pdf = 0.0;
 	float NdotL;
 	vec3 halfway;
 	float alpha = roughness * roughness;
@@ -182,7 +183,6 @@ vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float 
 				   metallic) * NdotL : vec3(0.0);
 	}
 	estimator = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdf * abs(NdotL);
-	if (any(isinf(estimator)) || any(isnan(estimator)) || any(lessThan(estimator, vec3(0.0)))) debugPrintfEXT("Estimator: (%v3f)\n", estimator);
 	return direction;
 }
 
