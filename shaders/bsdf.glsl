@@ -48,8 +48,40 @@ float visibilityFunction(float alpha, vec3 V, vec3 L) {
 	}
 }
 
+float refractiveVisibilityFunction(float alpha, float ior_i, float ior_o, vec3 V, vec3 L, vec3 H) {
+	float alphaSq = alpha * alpha;
+	float NdotL = L.z;
+	float NdotLSq = NdotL * NdotL;
+	float NdotV = V.z;
+	float NdotVSq = NdotV * NdotV;
+	float HdotL = abs(dot(H, L));
+	float HdotV = abs(dot(H, V));
+	float denom = ior_i * HdotV + ior_o * HdotL;
+	denom *= denom;
+
+	if (NdotV > 0 && NdotL > 0) {
+		float shadowing = NdotV + sqrt(mix(NdotLSq, 1, alphaSq));
+		float masking = NdotL + sqrt(mix(NdotVSq, 1, alphaSq));
+		return 4 * HdotL * HdotV * ior_o * ior_o / ((masking + shadowing) * denom);
+	} else {
+		return 0.0;
+	}
+}
+
 float specularBRDF(float alpha, vec3 V, vec3 L, vec3 H) {
 	return visibilityFunction(alpha, V, L) * D_GGX(alpha, H);
+}
+
+float refractiveBTDF(float alpha, float ior_i, float ior_o, vec3 V, vec3 L, vec3 H) {
+	return refractiveVisibilityFunction(alpha, ior_i, ior_o, V, H, L) * D_GGX(alpha, H);
+}
+
+float fresnelSchlick(float f0, float costheta) {
+	return mix(pow(1 - costheta, 5), 1, f0);
+}
+
+vec3 fresnelSchlick(vec3 f0, float costheta) {
+	return mix(vec3(pow(1 - costheta, 5)), vec3(1), f0);
 }
 
 float fresnelSchlick(float f0, vec3 V, vec3 H) {
@@ -96,72 +128,209 @@ vec3 sampleGGXVNDF(inout uint previous, float alpha, vec3 view) {
 	return normalize(vec3(halfwayStd.xy * alpha, halfwayStd.z));
 }
 
-float materialPDF(vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, vec3 V, vec3 L) {
+float materialPDF(vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, bool thin, float normalSign, vec3 V, vec3 L) {
+	vec3 H;
 	float alpha = roughness * roughness;
-	float eta = (ior - 1) / (ior + 1);
-	eta *= eta;
-	float pTransmission = (1 - metallic) * transmissionFactor;
+	float f0Dielectric = (ior - 1) / (ior + 1);
+	f0Dielectric *= f0Dielectric;
 
+	float F_transmission;
+
+	float GGXSamplePDF;
+	float pTransmission = (1 - metallic) * transmissionFactor;
+	float pDiffuse = 0.5 * (1 - metallic);
 	float NdotL = L.z;
-	if (pTransmission > 0 && NdotL < 0) {
-		vec3 H = normalize(V + vec3(L.xy, -L.z));
-		float specularPDF = GGXVNDFSamplePDF(alpha, V, H);
-		return pTransmission * specularPDF;
+	if (NdotL < 0) {
+		if (thin) {
+			H = normalize(V + vec3(L.xy, -L.z));
+			float VdotH = dot(V, H);
+			F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+		} else {
+			float ior_i = normalSign == 1.0 ? 1.0 : ior;
+			float ior_o = normalSign == 1.0 ? ior : 1.0;
+			float eta = ior_i / ior_o;
+
+			H = normalize(ior_i * V + ior_o * vec3(L.xy, -L.z));
+			float VdotH = dot(V, H);
+			float sinSqTheta_o = eta * eta * (1 - VdotH * VdotH);
+			if (ior_o >= ior_i) {
+				F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+			} else if (ior_o < ior_i && sinSqTheta_o <= 1) {
+				F_transmission = fresnelSchlick(f0Dielectric, 1 - sqrt(1 - sinSqTheta_o));
+			} else {
+				F_transmission = 1.0;
+			}
+		}
+
+		GGXSamplePDF = GGXVNDFSamplePDF(alpha, V, H);
+		return pTransmission * (1 - F_transmission) * GGXSamplePDF;
 	} else if (NdotL > 0) {
-		float pDiffuse = 0.5 * (1 - metallic);
 		vec3 H = normalize(L + V);
-		float F = fresnelSchlick(eta, V, H);
-		float specularPDF = GGXVNDFSamplePDF(alpha, V, H);
-		return mix((1 - pTransmission) * specularPDF, max(0.0, NdotL) * PIINV, pDiffuse);
+		GGXSamplePDF = GGXVNDFSamplePDF(alpha, V, H);
+		float pdf = mix((1 - pTransmission) * GGXSamplePDF, max(0.0, NdotL) * PIINV, pDiffuse);
+
+		if (pTransmission > 0) {
+			float VdotH = dot(V, H);
+			float F_transmission;
+			if (thin) {
+				F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+			} else {
+				float ior_i = normalSign == 1.0 ? 1.0 : ior;
+				float ior_o = normalSign == 1.0 ? ior : 1.0;
+				float eta = ior_i / ior_o;
+
+				float sinSqTheta_o = eta * eta * (1 - VdotH * VdotH);
+				if (ior_o >= ior_i) {
+					F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+				} else if (ior_o < ior_i && sinSqTheta_o <= 1) {
+					F_transmission = fresnelSchlick(f0Dielectric, 1 - sqrt(1 - sinSqTheta_o));
+				} else {
+					F_transmission = 1.0;
+				}
+			}
+			pdf += pTransmission * F_transmission * GGXSamplePDF;
+		}
+		return pdf;
 	}
 	return 0.0;
 }
 
-vec3 materialBSDF(vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, vec3 V, vec3 L) {
+vec3 materialBSDF(vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, bool thin, float attenuationDistance, vec3 attenuationColour, float normalSign, vec3 V, vec3 L) {
 	float alpha = roughness * roughness;
-	float eta = (ior - 1) / (ior + 1);
-	eta *= eta;
+	float f0Dielectric = (ior - 1) / (ior + 1);
+	f0Dielectric *= f0Dielectric;
 	float pTransmission = (1 - metallic) * transmissionFactor;
 	float NdotV = V.z;
 	float NdotL = L.z;
 
-	if (pTransmission > 0 && NdotL < 0) {
-		vec3 HT = normalize(V + vec3(L.xy, -L.z));
-		float F = fresnelSchlick(eta, V, HT);
-		return pTransmission * (1 - F) * baseColour * specularBRDF(alpha, V, vec3(L.xy, -L.z), HT) * -NdotL;
-	} else if (pTransmission < 1 && NdotL > 0) {
+	float F_dielectric, F_transmission;
+	vec3 F_metallic;
+	float ior_i, ior_o;
+	if (NdotL < 0) {
+		vec3 H;
+		if (thin) {
+			H = normalize(V + vec3(L.xy, -L.z));
+			float F_transmission = fresnelSchlick(f0Dielectric, V, H);
+		} else {
+			ior_i = normalSign == 1.0 ? 1.0 : ior;
+			ior_o = normalSign == 1.0 ? ior : 1.0;
+			float eta = ior_i / ior_o;
+
+			H = normalize(ior_i * V + ior_o * vec3(L.xy, -L.z));
+			float VdotH = dot(V, H);
+			float sinSqTheta_o = eta * eta * (1 - VdotH * VdotH);
+			if (ior_o >= ior_i) {
+				F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+			} else if (ior_o < ior_i && sinSqTheta_o <= 1) {
+				F_transmission = fresnelSchlick(f0Dielectric, 1 - sqrt(1 - sinSqTheta_o));
+			} else {
+				F_transmission = 1.0;
+			}
+		}
+
+		vec3 bsdf = pTransmission * (1 - F_transmission) * baseColour;
+		bsdf *= thin ? specularBRDF(alpha, V, vec3(L.xy, -L.z), H) : refractiveBTDF(alpha, ior_i, ior_o, V, vec3(L.xy, -L.z), H);
+		return bsdf;
+	} else if (NdotL > 0) {
 		vec3 H = normalize(V + L);
-		float F_dielectric = fresnelSchlick(eta, V, H);
+		float F_dielectric = fresnelSchlick(f0Dielectric, V, H);
 		vec3 F_metallic = fresnelSchlick(baseColour, V, H);
+
+
 		float specular = specularBRDF(alpha, V, L, H);
-		return mix(mix((1 - transmissionFactor) * diffuseBRDF(baseColour, L), vec3(specular), F_dielectric),
-					F_metallic * specular,
-					metallic) * NdotL;
+		vec3 bsdf = mix(
+			mix((1 - transmissionFactor) * diffuseBRDF(baseColour, L), vec3(specular), F_dielectric),
+			F_metallic * specular,
+			metallic);
+
+		if (pTransmission > 0) {
+			float VdotH = dot(V, H);
+			float F_transmission;
+			if (thin) {
+				F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+			} else {
+				ior_i = normalSign == 1.0 ? 1.0 : ior;
+				ior_o = normalSign == 1.0 ? ior : 1.0;
+				float eta = ior_i / ior_o;
+
+				float sinSqTheta_o = eta * eta * (1 - VdotH * VdotH);
+				if (ior_o >= ior_i) {
+					F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+				} else if (ior_o < ior_i && sinSqTheta_o <= 1) {
+					F_transmission = fresnelSchlick(f0Dielectric, 1 - sqrt(1 - sinSqTheta_o));
+				} else {
+					F_transmission = 1.0;
+				}
+			}
+			bsdf += pTransmission * F_transmission * baseColour * vec3(specular);
+			if (!thin && normalSign == -1.0)
+				bsdf *= pow(attenuationColour, vec3(gl_HitTEXT / attenuationDistance));
+		}
+		return bsdf;
 	}
 	return vec3(0.0);
 }
 
-vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, vec3 view, out vec3 estimator, out float pdf) {
+vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float roughness, float transmissionFactor, float ior, bool thin, float attenuationDistance, vec3 attenuationColour, float normalSign, vec3 view, out vec3 estimator, out float pdf) {
+	estimator = vec3(0.0);
 	vec3 direction = vec3(0.0); vec3 bsdf = vec3(0.0);
 	pdf = 0.0;
 	float NdotL;
 	vec3 halfway;
 	float alpha = roughness * roughness;
-	float eta = (ior - 1) / (ior + 1);
-	eta *= eta;
+	float f0Dielectric = (ior - 1) / (ior + 1);
+	f0Dielectric *= f0Dielectric;
 
+	float F_dielectric, F_transmission;
+	vec3 F_metallic;
+	float ior_i, ior_o;
+
+	float GGXSamplePDF;
 	float pTransmission = (1 - metallic) * transmissionFactor;
+	float pDiffuse = 0.5 * (1 - metallic);
 	if (rnd(previous) < pTransmission) {
 		halfway = sampleGGXVNDF(previous, alpha, view);
-		direction = reflect(-view, halfway);
-		direction.z *= -1;
-		NdotL = direction.z;
-		float F = fresnelSchlick(eta, view, halfway);
+		GGXSamplePDF = GGXVNDFSamplePDF(alpha, view, halfway);
 
-		pdf = pTransmission * GGXVNDFSamplePDF(alpha, view, halfway);
-		bsdf = NdotL < 0 ? pTransmission * (1 - F) * baseColour * specularBRDF(alpha, view, vec3(direction.xy, -direction.z), halfway) : vec3(0.0);
+		F_dielectric = fresnelSchlick(f0Dielectric, view, halfway);
+		F_metallic = fresnelSchlick(baseColour, view, halfway);
+		if (thin) {
+			F_transmission = fresnelSchlick(f0Dielectric, view, halfway);
+			direction = reflect(-view, halfway);
+			if (direction.z < 0) {
+				estimator = vec3(0.0);
+				return vec3(0.0);
+			}
+			
+			if (rnd(previous) > F_transmission)
+				direction.z *= -1; // transmission
+			NdotL = direction.z;
+		} else {
+			ior_i = normalSign == 1.0 ? 1.0 : ior;
+			ior_o = normalSign == 1.0 ? ior : 1.0;
+			float eta = ior_i / ior_o;
+			float VdotH = dot(view, halfway);
+			float sinSqTheta_o = eta * eta * (1 - VdotH * VdotH);
+			
+			if (ior_o >= ior_i) {
+				F_transmission = fresnelSchlick(f0Dielectric, VdotH);	
+			} else if (ior_o < ior_i && sinSqTheta_o <= 1) {
+				F_transmission = fresnelSchlick(f0Dielectric, 1 - sqrt(1 - sinSqTheta_o));
+			} else {
+				F_transmission = 1.0;
+			}
+
+			if (rnd(previous) < F_transmission) {
+				direction = reflect(-view, halfway);
+				NdotL = direction.z;
+				if (NdotL < 0) return vec3(0.0);
+			} else {
+				direction = refract(-view, halfway, eta);
+				NdotL = direction.z;
+				if (NdotL > 0) return vec3(0.0);
+			}
+		}
 	} else {
-		float pDiffuse = 0.5 * (1 - metallic);
 		if (rnd(previous) < pDiffuse) {
 			direction = sampleCosineHemisphere(previous);
 			halfway = normalize(view + direction);
@@ -169,18 +338,44 @@ vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, float 
 			halfway = sampleGGXVNDF(previous, alpha, view);
 			direction = reflect(-view, halfway);
 		}
-
-		NdotL = direction.z;
-		float specularPDF = GGXVNDFSamplePDF(alpha, view, halfway);
-		pdf = mix((1 - pTransmission) * specularPDF, max(0.0, NdotL) * PIINV, pDiffuse);
 		
-		float F_dielectric = fresnelSchlick(eta, view, halfway);
-		vec3 F_metallic = fresnelSchlick(baseColour, view, halfway);
+		NdotL = direction.z;
+		if (NdotL < 0) return vec3(0.0);
+
+		GGXSamplePDF = GGXVNDFSamplePDF(alpha, view, halfway);		
+		F_dielectric = fresnelSchlick(f0Dielectric, view, halfway);
+		F_metallic = fresnelSchlick(baseColour, view, halfway);
+
+		ior_i = normalSign == 1.0 ? 1.0 : ior;
+		ior_o = normalSign == 1.0 ? ior : 1.0;
+		float eta = ior_i / ior_o;
+		float VdotH = dot(view, halfway);
+		float sinSqTheta_o = eta * eta * (1 - VdotH * VdotH);
+
+		if (ior_o >= ior_i) {
+			F_transmission = fresnelSchlick(f0Dielectric, VdotH);
+		} else if (ior_o < ior_i && sinSqTheta_o <= 1) {
+			F_transmission = fresnelSchlick(f0Dielectric, 1 - sqrt(1 - sinSqTheta_o));
+		} else {
+			F_transmission = 1.0;
+		}
+	}
+
+	if (NdotL < 0) {
+		bsdf = pTransmission * (1 - F_transmission) * baseColour;
+		bsdf *= thin ? specularBRDF(alpha, view, vec3(direction.xy, -direction.z), halfway) : refractiveBTDF(alpha, ior_i, ior_o, view, vec3(direction.xy, -direction.z), halfway);
+		if (!thin && normalSign == -1.0)
+			bsdf *= pow(attenuationColour, vec3(gl_HitTEXT / attenuationDistance));
+		pdf = pTransmission * (1 - F_transmission) * GGXSamplePDF;
+	} else {
 		float specular = specularBRDF(alpha, view, direction, halfway);
-		bsdf = NdotL > 0 ? mix(
-				   mix((1 - transmissionFactor) * diffuseBRDF(baseColour, direction), vec3(specular), F_dielectric),
-				   F_metallic * specular,
-				   metallic) * NdotL : vec3(0.0);
+		bsdf = mix(
+			mix((1 - transmissionFactor) * diffuseBRDF(baseColour, direction), vec3(specular), F_dielectric),
+			F_metallic * specular,
+			metallic) 
+			+ pTransmission * F_transmission * baseColour * vec3(specular);
+		pdf = mix((1 - pTransmission) * GGXSamplePDF, NdotL * PIINV, pDiffuse)
+			+ pTransmission * F_transmission * GGXSamplePDF;
 	}
 	estimator = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdf * abs(NdotL);
 	return direction;

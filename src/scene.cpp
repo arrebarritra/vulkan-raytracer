@@ -168,9 +168,9 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 
 		material.doubleSided = gltfMaterial.doubleSided;
 
-		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); transmission != gltfMaterial.extensions.end()) {
-			if (transmission->second.Has("emissiveStrength"))
-				material.emissiveFactor *= transmission->second.Get("emissiveStrength").GetNumberAsDouble();
+		if (auto emissiveStrength = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); emissiveStrength != gltfMaterial.extensions.end()) {
+			if (emissiveStrength->second.Has("emissiveStrength"))
+				material.emissiveFactor *= emissiveStrength->second.Get("emissiveStrength").GetNumberAsDouble();
 		}
 		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_transmission"); transmission != gltfMaterial.extensions.end()) {
 			if (transmission->second.Has("transmissionFactor"))
@@ -178,15 +178,15 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 			if (transmission->second.Has("transmissionTexture"))
 				material.transmissionTexIdx = baseTextureOffset + model.textures[transmission->second.Get("transmissionTexture").Get("index").GetNumberAsInt()].source;
 		}
-		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_volume"); transmission != gltfMaterial.extensions.end()) {
-			if (transmission->second.Has("thicknessFactor"))
-				material.thicknessFactor = transmission->second.Get("thicknessFactor").GetNumberAsDouble();
-			if (transmission->second.Has("attenuationDistance"))
-				material.attenuationDistance = transmission->second.Get("attenuationDistance").GetNumberAsDouble();
-			if (transmission->second.Has("attenuationColor")) {
-				assert(transmission->second.Get("attenuationColor").ArrayLen() == 3);
+		if (auto volume = gltfMaterial.extensions.find("KHR_materials_volume"); volume != gltfMaterial.extensions.end()) {
+			if (volume->second.Has("thicknessFactor"))
+				material.thicknessFactor = volume->second.Get("thicknessFactor").GetNumberAsDouble();
+			if (volume->second.Has("attenuationDistance"))
+				material.attenuationDistance = volume->second.Get("attenuationDistance").GetNumberAsDouble();
+			if (volume->second.Has("attenuationColor")) {
+				assert(volume->second.Get("attenuationColor").ArrayLen() == 3);
 				for (int i = 0; i < 3; i++)
-					material.attenuationColour[i] = transmission->second.Get("attenuationDistance").Get(i).GetNumberAsDouble();
+					material.attenuationColour[i] = volume->second.Get("attenuationColor").Get(i).GetNumberAsDouble();
 			}
 		}
 		materials.push_back(material);
