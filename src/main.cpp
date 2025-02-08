@@ -9,8 +9,8 @@
 
 glm::vec3 vec3Zero(0.0f);
 glm::vec3 vec3One(1.0f);
-glm::vec3 cameraDefaultPos(0.0f, 1.0f, 0.0f);
-glm::vec3 cameraDefaultDir(0.0f, 0.0f, 1.0f);
+glm::vec3 cameraDefaultPos(0.0f, 1.0f, 3.0f);
+glm::vec3 cameraDefaultDir(0.0f, 0.0f, -1.0f);
 
 template<glm::vec3* defaultValue = &vec3Zero>
 struct Vec3Reader {
@@ -81,8 +81,13 @@ using ScaleReader = Vec3Reader<&vec3One>;
 
 
 int main(int argc, char** argv) {
-	args::ArgumentParser parser("Vulkan raytracer - a glTF path tracer");
+	args::ArgumentParser parser("Vulkan raytracer - a glTF path tracer.\n\n"
+								"[WASD] - move around the scene\n"
+								"[LEFT MOUSE] - pan camera\n"
+								"[RIGHT MOUSE] - adjust fov\n"
+	);
 	args::HelpFlag help(parser, "help", "Display this help menu", { 'h', "help" });
+	
 	args::ValueFlagList<std::string> models(parser, "models", "glTF model file(s)", { 'm', "models" });
 
 	args::Group transform(parser, "Transform modifiers - the n:th transform modifier will affect the transform of n:th model provided. Use comma separated list to specify values or \'d\' to use default value.");
@@ -94,6 +99,9 @@ int main(int argc, char** argv) {
 	args::ValueFlag<glm::vec3, Vec3Reader<&cameraDefaultPos>> cameraPos(camera, "cameraPos", "Camera position [x,y,z]", { 'c', "camera-position" }, args::Options::Single);
 	args::ValueFlag<glm::vec3, Vec3Reader<&cameraDefaultDir>> cameraDir(camera, "cameraDir", "Camera direction [x,y,z]", { 'd', "camera-direction" }, args::Options::Single);
 
+	args::Group skyboxParams(parser, "Skybox settings");
+	args::ImplicitValueFlag<std::string> skybox(skyboxParams, "skybox", "Skybox file", { "skybox" }, "hilly_terrain_01_4k.hdr", args::Options::Single);
+	args::ImplicitValueFlag<float> skyboxStrength(skyboxParams, "skybox", "Skybox strength multiplier", { "skybox-strength" }, 1.0f, args::Options::Single);
 
 	try {
 		parser.ParseCLI(argc, argv);
@@ -110,7 +118,7 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	std::vector modelFiles = !models || models.Get().empty() ? std::vector<std::string>{ "cornell-box.gltf" } : models.Get();
+	std::vector modelFiles = !models || models.Get().empty() ? std::vector<std::string>{ "CornellBox.gltf" } : models.Get();
 	std::vector<glm::mat4> transforms;
 	transforms.reserve(modelFiles.size());
 	for (int i = 0; i < modelFiles.size(); i++) {
@@ -120,6 +128,7 @@ int main(int argc, char** argv) {
 		if (translations && i < translations.Get().size()) transform = glm::translate(translations.Get()[i]) * transform;
 		transforms.push_back(transform);
 	}
-	auto rt = vkrt::Raytracer(modelFiles, transforms, cameraPos ? cameraPos.Get() : glm::vec3(0.0f, 1.0f, 0.0f), cameraDir ? cameraDir.Get() : glm::vec3(0.0f, 0.0f, 1.0f));
+
+	auto rt = vkrt::Raytracer(modelFiles, transforms, cameraPos ? cameraPos.Get() : cameraDefaultPos, cameraDir ? cameraDir.Get() : cameraDefaultDir, RESOURCE_DIR + skybox.Get(), skyboxStrength.Get());
 	rt.renderLoop();
 }

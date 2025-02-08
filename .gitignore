@@ -1,2 +1,4 @@
 build/
-res/
+res/*
+!res/hilly_terrain_01_4k.hdr
+!res/CornellBox.gltf

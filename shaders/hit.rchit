@@ -17,8 +17,9 @@
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
-    uint sampleCount, maxRayDepth;
+    uint sampleCount, maxRayDepth, skyboxStrength;
 } pathTracing;
+
 
 layout(location = 0) rayPayloadInEXT RayPayload payloadIn;
 hitAttributeEXT vec2 attribs;

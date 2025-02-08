@@ -11,7 +11,7 @@ namespace vkrt {
 
 class Raytracer : public Application {
 public:
-	Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir);
+	Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength);
 	~Raytracer() = default;
 
 private:
@@ -21,7 +21,7 @@ private:
 	CameraProperties camProps;
 
 	struct PathTracingProperties {
-		uint32_t sampleCount, maxRayDepth = 5u;
+		uint32_t sampleCount, maxRayDepth = 5u, skyboxStrength = 1u;
 	};
 	PathTracingProperties pathTracingProps;
 
@@ -30,7 +30,6 @@ private:
 	static const uint32_t FRAMES_IN_FLIGHT = 1u;
 
 	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR raytracingPipelineProperties;
-
 	vk::UniqueCommandPool commandPool;
 	std::vector<vk::UniqueCommandBuffer> raytraceCmdBuffers;
 
@@ -39,6 +38,7 @@ private:
 	std::unique_ptr<Image> accumulationImage, outputImage;
 	vk::UniqueImageView accumulationImageView, outputImageView;
 	std::unique_ptr<Buffer> uniformCameraProps, uniformPathTracingProps;
+	std::unique_ptr<Texture> skyboxTexture;
 
 	// Ray tracing pipeline
 	vk::UniqueDescriptorSetLayout descriptorSetLayout;

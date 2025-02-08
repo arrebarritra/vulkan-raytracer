@@ -15,7 +15,7 @@ Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransfer
 	auto memReqs = device->getImageMemoryRequirements(*image);
 	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindImageMemory(*image, *memBlock->allocation.memory, memBlock->offset);
-	if (data.size() != 0) write(data);
+	if (data.size() != 0) write(data, targetLayout);
 }
 
 Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransferHandler& rth, vk::ImageCreateInfo imageCI, std::filesystem::path imageFile,
@@ -53,7 +53,7 @@ Image::Image(vk::SharedDevice device, DeviceMemoryManager& dmm, ResourceTransfer
 	memBlock = dmm.allocateResource(memReqs, memProps, as);
 	device->bindImageMemory(*image, *memBlock->allocation.memory, memBlock->offset);
 
-	write({ static_cast<uint32_t>(x * y * requiredComponents), (char*)imageData });
+	write({ static_cast<uint32_t>(x * y * requiredComponents), (char*)imageData }, targetLayout);
 	stbi_image_free(imageData);
 }
 

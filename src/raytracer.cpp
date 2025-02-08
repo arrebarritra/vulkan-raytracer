@@ -23,7 +23,7 @@ auto asFeatures = vk::PhysicalDeviceAccelerationStructureFeaturesKHR{}.setAccele
 auto rtpFeatures = vk::PhysicalDeviceRayTracingPipelineFeaturesKHR{}.setRayTracingPipeline(vk::True).setPNext(&asFeatures);
 const void* Raytracer::raytracingFeaturesChain = &rtpFeatures;
 
-Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir)
+Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength)
 	: Application("Vulkan raytracer", 1280, 720, vk::ApiVersion11,
 				  nullptr, nullptr, raytracingRequiredExtensions, raytracingFeaturesChain,
 				  true, false, false, FRAMES_IN_FLIGHT,
@@ -31,10 +31,6 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 				  { vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo })
 	, scene(device, *dmm, *rth)
 {
-	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	//if (glfwRawMouseMotionSupported())
-	//	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-
 	auto pdPropsTemp = vk::PhysicalDeviceProperties2({}, &raytracingPipelineProperties);
 	physicalDevice.getProperties2(&pdPropsTemp);
 
@@ -56,6 +52,8 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 	rth->flushPendingTransfers();
 
 	// Upload uniforms
+	skyboxTexture = std::make_unique<Texture>(device, *dmm, *rth, std::filesystem::path(skyboxFile));
+
 	camera.position = cameraPos;
 	camera.direction = cameraDir;
 	camProps = CameraProperties{ camera.getViewInv(), camera.getProjectionInv() };
@@ -65,6 +63,7 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 	uniformCameraProps = std::make_unique<Buffer>(device, *dmm, *rth, uniformCameraPropsCI, vk::ArrayProxyNoTemporaries{ sizeof(CameraProperties), (char*)&camProps }, MemoryStorage::DeviceDynamic);
 
 	pathTracingProps.sampleCount = 0u;
+	pathTracingProps.skyboxStrength = skyboxStrength;
 	auto uniformPathTracingPropsCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(PathTracingProperties))
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer);
@@ -162,7 +161,7 @@ void Raytracer::createRaytracingPipeline() {
 		.setBinding(4u)
 		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR | vk::ShaderStageFlagBits::eClosestHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR | vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eMissKHR);
 	auto geometryInfoBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(5u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
@@ -193,17 +192,23 @@ void Raytracer::createRaytracingPipeline() {
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
-	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+	auto skyboxSamplerLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(11u)
+		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+		.setDescriptorCount(1u)
+		.setStageFlags(vk::ShaderStageFlagBits::eMissKHR);
+	auto textureSamplersLB = vk::DescriptorSetLayoutBinding{}
+		.setBinding(12u)
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 		.setDescriptorCount(static_cast<uint32_t>(scene.texturePool.size()))
 		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	std::array layoutBindings = { accelerationStructureLB, accumulationImageLB, outputImageLB, uniformCameraPropsLB,
 									uniformPathTracingPropsLB, geometryInfoBufferLB, materialsBufferLB,
 									pointLightsBufferLB, directionalLightsBufferLB, emissiveSurfacesBufferLB, emissiveTrianglesBufferLB,
-									textureSamplersLB };
+									skyboxSamplerLB, textureSamplersLB };
 
 	std::array descriptorBindingFlags = {
+		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
 		vk::DescriptorBindingFlagsEXT{},
@@ -286,6 +291,7 @@ void Raytracer::createDescriptorSets() {
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 1},
+							 vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, 1},
 							 vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, 1}
 	};
 
@@ -402,10 +408,18 @@ void Raytracer::updateDescriptorSets() {
 		.setBufferInfo(emissiveTrianglesBufferDescriptor)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer);
 
+	auto skyboxTextureDescriptor = skyboxTexture->getDescriptor();
+	auto& skyboxTextureWrite = vk::WriteDescriptorSet{}
+		.setDstSet(descriptorSet)
+		.setDstBinding(11u)
+		.setImageInfo(skyboxTextureDescriptor)
+		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+
 	std::vector<vk::WriteDescriptorSet> descriptorWrites = {
 		accelerationStructureWrite, accumulationImageWrite, outputImageWrite,
 		uniformCameraPropsWrite, uniformPathTracingPropsWrite,geometryInfoBufferWrite, materialsBufferWrite,
-		pointLightsBufferWrite, directionalLightsBufferWrite, emissiveSurfacesBufferWrite, emissiveTrianglesBufferWrite
+		pointLightsBufferWrite, directionalLightsBufferWrite, emissiveSurfacesBufferWrite, emissiveTrianglesBufferWrite,
+		skyboxTextureWrite
 	};
 
 	std::vector<vk::DescriptorImageInfo> textureDescriptors;
@@ -416,7 +430,7 @@ void Raytracer::updateDescriptorSets() {
 		}
 		auto& textureWrites = vk::WriteDescriptorSet{}
 			.setDstSet(descriptorSet)
-			.setDstBinding(11u)
+			.setDstBinding(12u)
 			.setImageInfo(textureDescriptors)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 

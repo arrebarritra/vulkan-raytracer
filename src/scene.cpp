@@ -199,7 +199,7 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	}
 
 	// Load lights
-	LOG_INFO("Loading %d lights", model.lights.size());
+	LOG_INFO("Loading %d punctual lights", model.lights.size());
 	uint32_t baseLightOffset = lightGlobalToTypeIndex.size();
 	lightGlobalToTypeIndex.reserve(lightGlobalToTypeIndex.size() + model.lights.size());
 	for (const auto& gltfLight : model.lights) {
