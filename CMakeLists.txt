@@ -63,15 +63,12 @@ target_compile_definitions(${PROJECT_NAME}
 # Add dependencies
 find_package(Vulkan REQUIRED)
 
+add_subdirectory("${EXTERNAL_FOLDER}/args" EXCLUDE_FROM_ALL)
 add_subdirectory("${EXTERNAL_FOLDER}/glfw" EXCLUDE_FROM_ALL)
 add_subdirectory("${EXTERNAL_FOLDER}/glm" EXCLUDE_FROM_ALL)
 
-#set(TINYGLTF_HEADER_ONLY ON CACHE INTERNAL "" FORCE)
-#set(TINYGLTF_INSTALL OFF CACHE INTERNAL "" FORCE)
-#add_subdirectory("${EXTERNAL_FOLDER}/tinygltf")
-
 target_link_libraries(${PROJECT_NAME}
-  PUBLIC Vulkan::Vulkan glm::glm glfw
+  PUBLIC Vulkan::Vulkan glm::glm glfw taywee::args
 )
 
 add_dependencies(${PROJECT_NAME} glfw)

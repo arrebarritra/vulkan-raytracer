@@ -25,5 +25,5 @@ if (vk::Result(res) != vk::Result::eSuccess) { \
 }
 
 // TODO: logging levels for debug/release
-#define LOG_ERROR(fmt, ...) fprintf(stderr, "Error: " fmt "\n", __VA_ARGS__); fflush(stderr);
-#define LOG_INFO(fmt, ...) fprintf(stdout, "Info: " fmt "\n", __VA_ARGS__); fflush(stdout);
+#define LOG_ERROR(fmt, ...) fprintf(stderr, "\033[1;31mError:\033[0m " fmt "\n", __VA_ARGS__); fflush(stderr);
+#define LOG_INFO(fmt, ...) fprintf(stdout, "\033[1;34mInfo:\033[0m " fmt "\n", __VA_ARGS__); fflush(stdout);

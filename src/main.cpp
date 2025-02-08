@@ -1,6 +1,125 @@
+#include <logging.h>
 #include <raytracer.h>
+#include <args.hxx>
 
-int main() {
-	auto rt = vkrt::Raytracer();
+#include <glm/glm.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/transform.hpp>
+
+glm::vec3 vec3Zero(0.0f);
+glm::vec3 vec3One(1.0f);
+glm::vec3 cameraDefaultPos(0.0f, 1.0f, 0.0f);
+glm::vec3 cameraDefaultDir(0.0f, 0.0f, 1.0f);
+
+template<glm::vec3* defaultValue = &vec3Zero>
+struct Vec3Reader {
+	void operator()(const std::string& name, const std::string& value, glm::vec3& v) {
+		if (value == "d") {
+			v = *defaultValue;
+			return;
+		}
+		size_t readPos = 0;
+		try {
+			size_t separatorPos = 0;
+			v.x = std::stof(value, &separatorPos);
+			readPos += separatorPos + 1;
+			v.y = std::stof(std::string(value, readPos), &separatorPos);
+			readPos += separatorPos + 1;
+			v.z = std::stof(std::string(value, readPos));
+		} catch (std::out_of_range e) {
+			char error[100];
+			std::snprintf(error, sizeof(error), "%s - must be empty or provide 3 real values", name.c_str());
+			throw args::ParseError(error);
+		} catch (std::exception e) {
+			char error[200];
+			std::istringstream is(std::string(value, readPos));
+			std::string badSubstr;
+			is >> badSubstr;
+			std::snprintf(error, sizeof(error), "%s - could not parse value '%s' at position %d: %s", name.c_str(), badSubstr.c_str(), readPos, e.what());
+			throw args::ParseError(error);
+		}
+	}
+};
+
+glm::quat quatIdentity = glm::identity<glm::quat>();
+template<glm::quat* defaultValue = &quatIdentity>
+struct QuaternionReader {
+	void operator()(const std::string& name, const std::string& value, glm::quat& q) {
+		if (value == "d") {
+			q = *defaultValue;
+			return;
+		}
+		size_t readPos = 0;
+		try {
+			size_t separatorPos = 0;
+			q.w = std::stof(value, &separatorPos);
+			readPos += separatorPos + 1;
+			q.x = std::stof(std::string(value, readPos), &separatorPos);
+			readPos += separatorPos + 1;
+			q.y = std::stof(std::string(value, readPos), &separatorPos);
+			readPos += separatorPos + 1;
+			q.z = std::stof(std::string(value, readPos));
+		} catch (std::out_of_range e) {
+			char error[100];
+			std::snprintf(error, sizeof(error), "%s - must be empty or provide 4 real values", name.c_str());
+			throw args::ParseError(error);
+		} catch (std::exception e) {
+			char error[200];
+			std::istringstream is(std::string(value, readPos));
+			std::string badSubstr;
+			is >> badSubstr;
+			std::snprintf(error, sizeof(error), "%s - could not parse value '%s' at position %d: %s", name.c_str(), badSubstr.c_str(), readPos, e.what());
+			throw args::ParseError(error);
+		}
+	}
+};
+
+using TranslationReader = Vec3Reader<>;
+using ScaleReader = Vec3Reader<&vec3One>;
+
+
+
+int main(int argc, char** argv) {
+	args::ArgumentParser parser("Vulkan raytracer - a glTF path tracer");
+	args::HelpFlag help(parser, "help", "Display this help menu", { 'h', "help" });
+	args::ValueFlagList<std::string> models(parser, "models", "glTF model file(s)", { 'm', "models" });
+
+	args::Group transform(parser, "Transform modifiers - the n:th transform modifier will affect the transform of n:th model provided. Use comma separated list to specify values or \'d\' to use default value.");
+	args::ValueFlagList <glm::vec3, std::vector, TranslationReader> translations(transform, "translations", "Model translation(s) [x,y,z]", { 't', "translations" });
+	args::ValueFlagList<glm::quat, std::vector, QuaternionReader<>> rotations(transform, "rotations", "Model rotation(s) [w,x,y,z]", { 'r', "rotations" });
+	args::ValueFlagList<glm::vec3, std::vector, ScaleReader> scales(transform, "scales", "Model scale(s) [x,y,z]", { 's', "scales" });
+
+	args::Group camera(parser, "Initial camera settings");
+	args::ValueFlag<glm::vec3, Vec3Reader<&cameraDefaultPos>> cameraPos(camera, "cameraPos", "Camera position [x,y,z]", { 'c', "camera-position" }, args::Options::Single);
+	args::ValueFlag<glm::vec3, Vec3Reader<&cameraDefaultDir>> cameraDir(camera, "cameraDir", "Camera direction [x,y,z]", { 'd', "camera-direction" }, args::Options::Single);
+
+
+	try {
+		parser.ParseCLI(argc, argv);
+	} catch (args::Help) {
+		fprintf(stdout, parser.Help().c_str());
+		return 0;
+	} catch (args::ParseError e) {
+		LOG_ERROR("%s", e.what());
+		fprintf(stdout, parser.Help().c_str());
+		return 1;
+	} catch (args::ValidationError e) {
+		LOG_ERROR("%s", e.what());
+		fprintf(stdout, parser.Help().c_str());
+		return 1;
+	}
+
+	std::vector modelFiles = !models || models.Get().empty() ? std::vector<std::string>{ "cornell-box.gltf" } : models.Get();
+	std::vector<glm::mat4> transforms;
+	transforms.reserve(modelFiles.size());
+	for (int i = 0; i < modelFiles.size(); i++) {
+		glm::mat4 transform(1.0f);
+		if (scales && i < scales.Get().size()) transform = glm::scale(scales.Get()[i]) * transform;
+		if (rotations && i < rotations.Get().size()) transform = glm::mat4(rotations.Get()[i]) * transform;
+		if (translations && i < translations.Get().size()) transform = glm::translate(translations.Get()[i]) * transform;
+		transforms.push_back(transform);
+	}
+	auto rt = vkrt::Raytracer(modelFiles, transforms, cameraPos ? cameraPos.Get() : glm::vec3(0.0f, 1.0f, 0.0f), cameraDir ? cameraDir.Get() : glm::vec3(0.0f, 0.0f, 1.0f));
 	rt.renderLoop();
 }

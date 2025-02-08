@@ -2,6 +2,7 @@
 #include <utils.h>
 #include <camera.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <ranges>
 
 namespace vkrt {
 
@@ -22,7 +23,7 @@ auto asFeatures = vk::PhysicalDeviceAccelerationStructureFeaturesKHR{}.setAccele
 auto rtpFeatures = vk::PhysicalDeviceRayTracingPipelineFeaturesKHR{}.setRayTracingPipeline(vk::True).setPNext(&asFeatures);
 const void* Raytracer::raytracingFeaturesChain = &rtpFeatures;
 
-Raytracer::Raytracer()
+Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir)
 	: Application("Vulkan raytracer", 1280, 720, vk::ApiVersion11,
 				  nullptr, nullptr, raytracingRequiredExtensions, raytracingFeaturesChain,
 				  true, false, false, FRAMES_IN_FLIGHT,
@@ -45,11 +46,9 @@ Raytracer::Raytracer()
 
 	createImages();
 
-	// Create acceleration structure
-	//scene.loadModel(RESOURCE_DIR"NewSponza_Main_glTF_003.gltf", &scene.root);
-	//scene.loadModel(RESOURCE_DIR"NewSponza_Curtains_glTF.gltf", &scene.root);
-	//scene.loadModel(RESOURCE_DIR"DragonAttenuation.gltf", &scene.root, glm::translate(glm::rotate(glm::mat4(1.0f), -glm::pi<float>() / 2.0f, glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.0f, 1.0f, -4.0f)));
-	scene.loadModel(RESOURCE_DIR"transmissiontest.gltf", &scene.root);
+	// Load models and create acceleration structure
+	for (int i = 0; i < modelFiles.size(); i++)
+		scene.loadModel(RESOURCE_DIR + modelFiles[i], &scene.root, transforms[i]);
 	scene.uploadResources();
 	rth->flushPendingTransfers();
 
@@ -57,6 +56,8 @@ Raytracer::Raytracer()
 	rth->flushPendingTransfers();
 
 	// Upload uniforms
+	camera.position = cameraPos;
+	camera.direction = cameraDir;
 	camProps = CameraProperties{ camera.getViewInv(), camera.getProjectionInv() };
 	auto uniformCameraPropsCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(CameraProperties))

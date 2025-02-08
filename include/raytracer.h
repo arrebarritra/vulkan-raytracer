@@ -11,7 +11,7 @@ namespace vkrt {
 
 class Raytracer : public Application {
 public:
-	Raytracer();
+	Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir);
 	~Raytracer() = default;
 
 private:
