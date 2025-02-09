@@ -36,11 +36,16 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 	uint32_t baseMeshOffset = meshPool.size();
 	uint32_t baseMaterialOffset = materials.size();
 	uint32_t baseTextureOffset = texturePool.size();
+	uint32_t baseLightOffset = lightGlobalToTypeIndex.size();
 	meshPool.reserve(meshPool.size() + model.meshes.size());
 	geometryInfos.reserve(geometryInfos.size() + model.meshes.size());
 	materials.reserve(materials.size() + model.materials.size());
 	bool validTangents = true;
 	for (const auto& gltfMesh : model.meshes) {
+		char progressBarText[200];
+		snprintf(progressBarText, sizeof(progressBarText), "Loading \"%s\" (%d primitives)", gltfMesh.name.c_str(), gltfMesh.primitives.size());
+		logProgressBar(meshPool.size() + 1 - baseMeshOffset, model.meshes.size(), 20, progressBarText);
+
 		std::vector<std::vector<Vertex>> primitiveVertices;
 		std::vector<std::vector<Index>> primitiveIndices;
 		std::vector<uint32_t> materialIndices;
@@ -136,94 +141,114 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 		for (int i = 0; i < gltfMesh.primitives.size(); i++)
 			geometryInfos.emplace_back(device->getBufferAddress(**meshPool.back().vertexBuffers[i]), device->getBufferAddress(**meshPool.back().indexBuffers[i]), meshPool.back().materialIndices[i]);
 	}
+	logProgressBarFinish(model.meshes.size(), 20, "");
 	if (!validTangents) LOG_ERROR("Mesh contains invalid tangents");
 
 	// Load materials and associated textures
-	LOG_INFO("Loading %d materials", model.materials.size());
-	for (const auto& gltfMaterial : model.materials) {
-		Material material;
+	if (model.materials.size() > 0) {
+		LOG_INFO("Loading %d materials", model.materials.size());
+		for (const auto& gltfMaterial : model.materials) {
+			char progressBarText[200];
+			snprintf(progressBarText, sizeof(progressBarText), "Loading \"%s\"", gltfMaterial.name.c_str());
+			logProgressBar(materials.size() + 1 - baseMaterialOffset, model.materials.size(), 20, progressBarText);
+			Material material;
 
-		material.baseColourFactor = glm::make_vec4(gltfMaterial.pbrMetallicRoughness.baseColorFactor.data());
-		if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index != -1)
-			material.baseColourTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.baseColorTexture.index].source;
+			material.baseColourFactor = glm::make_vec4(gltfMaterial.pbrMetallicRoughness.baseColorFactor.data());
+			if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index != -1)
+				material.baseColourTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.baseColorTexture.index].source;
 
-		if (gltfMaterial.alphaMode == "OPAQUE")
-			material.alphaMode = 0;
-		else if (gltfMaterial.alphaMode == "MASK")
-			material.alphaMode = 1;
-		else if (gltfMaterial.alphaMode == "BLEND")
-			material.alphaMode = 2;
-		material.alphaCutoff = gltfMaterial.alphaCutoff;
+			if (gltfMaterial.alphaMode == "OPAQUE")
+				material.alphaMode = 0;
+			else if (gltfMaterial.alphaMode == "MASK")
+				material.alphaMode = 1;
+			else if (gltfMaterial.alphaMode == "BLEND")
+				material.alphaMode = 2;
+			material.alphaCutoff = gltfMaterial.alphaCutoff;
 
-		material.emissiveFactor = glm::make_vec3(gltfMaterial.emissiveFactor.data());
-		if (gltfMaterial.emissiveTexture.index != -1)
-			material.emissiveTexIdx = baseTextureOffset + model.textures[gltfMaterial.emissiveTexture.index].source;
+			material.emissiveFactor = glm::make_vec3(gltfMaterial.emissiveFactor.data());
+			if (gltfMaterial.emissiveTexture.index != -1)
+				material.emissiveTexIdx = baseTextureOffset + model.textures[gltfMaterial.emissiveTexture.index].source;
 
-		material.metallicFactor = gltfMaterial.pbrMetallicRoughness.metallicFactor;
-		material.roughnessFactor = gltfMaterial.pbrMetallicRoughness.roughnessFactor;
-		if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index != -1)
-			material.metallicRoughnessTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index].source;
-		if (gltfMaterial.normalTexture.index != -1)
-			material.normalTexIdx = baseTextureOffset + model.textures[gltfMaterial.normalTexture.index].source;
+			material.metallicFactor = gltfMaterial.pbrMetallicRoughness.metallicFactor;
+			material.roughnessFactor = gltfMaterial.pbrMetallicRoughness.roughnessFactor;
+			if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index != -1)
+				material.metallicRoughnessTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index].source;
+			if (gltfMaterial.normalTexture.index != -1)
+				material.normalTexIdx = baseTextureOffset + model.textures[gltfMaterial.normalTexture.index].source;
 
-		material.doubleSided = gltfMaterial.doubleSided;
+			material.doubleSided = gltfMaterial.doubleSided;
 
-		if (auto emissiveStrength = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); emissiveStrength != gltfMaterial.extensions.end()) {
-			if (emissiveStrength->second.Has("emissiveStrength"))
-				material.emissiveFactor *= emissiveStrength->second.Get("emissiveStrength").GetNumberAsDouble();
-		}
-		if (auto transmission = gltfMaterial.extensions.find("KHR_materials_transmission"); transmission != gltfMaterial.extensions.end()) {
-			if (transmission->second.Has("transmissionFactor"))
-				material.transmissionFactor = static_cast<float>(transmission->second.Get("transmissionFactor").GetNumberAsDouble());
-			if (transmission->second.Has("transmissionTexture"))
-				material.transmissionTexIdx = baseTextureOffset + model.textures[transmission->second.Get("transmissionTexture").Get("index").GetNumberAsInt()].source;
-		}
-		if (auto volume = gltfMaterial.extensions.find("KHR_materials_volume"); volume != gltfMaterial.extensions.end()) {
-			if (volume->second.Has("thicknessFactor"))
-				material.thicknessFactor = volume->second.Get("thicknessFactor").GetNumberAsDouble();
-			if (volume->second.Has("attenuationDistance"))
-				material.attenuationDistance = volume->second.Get("attenuationDistance").GetNumberAsDouble();
-			if (volume->second.Has("attenuationColor")) {
-				assert(volume->second.Get("attenuationColor").ArrayLen() == 3);
-				for (int i = 0; i < 3; i++)
-					material.attenuationColour[i] = volume->second.Get("attenuationColor").Get(i).GetNumberAsDouble();
+			if (auto emissiveStrength = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); emissiveStrength != gltfMaterial.extensions.end()) {
+				if (emissiveStrength->second.Has("emissiveStrength"))
+					material.emissiveFactor *= emissiveStrength->second.Get("emissiveStrength").GetNumberAsDouble();
 			}
+			if (auto transmission = gltfMaterial.extensions.find("KHR_materials_transmission"); transmission != gltfMaterial.extensions.end()) {
+				if (transmission->second.Has("transmissionFactor"))
+					material.transmissionFactor = static_cast<float>(transmission->second.Get("transmissionFactor").GetNumberAsDouble());
+				if (transmission->second.Has("transmissionTexture"))
+					material.transmissionTexIdx = baseTextureOffset + model.textures[transmission->second.Get("transmissionTexture").Get("index").GetNumberAsInt()].source;
+			}
+			if (auto volume = gltfMaterial.extensions.find("KHR_materials_volume"); volume != gltfMaterial.extensions.end()) {
+				if (volume->second.Has("thicknessFactor"))
+					material.thicknessFactor = volume->second.Get("thicknessFactor").GetNumberAsDouble();
+				if (volume->second.Has("attenuationDistance"))
+					material.attenuationDistance = volume->second.Get("attenuationDistance").GetNumberAsDouble();
+				if (volume->second.Has("attenuationColor")) {
+					assert(volume->second.Get("attenuationColor").ArrayLen() == 3);
+					for (int i = 0; i < 3; i++)
+						material.attenuationColour[i] = volume->second.Get("attenuationColor").Get(i).GetNumberAsDouble();
+				}
+			}
+			materials.push_back(material);
 		}
-		materials.push_back(material);
+		logProgressBarFinish(model.materials.size(), 20, "");
 	}
 
-	LOG_INFO("Loading %d images", model.images.size());
-	for (const auto& gltfImage : model.images) {
-		texturePool.emplace_back(std::make_unique<Texture>(device, dmm, rth, path.parent_path() / std::filesystem::path(gltfImage.uri)));
-		rth.freeCompletedTransfers();
+	if (model.images.size() > 0) {
+		LOG_INFO("Loading %d images", model.images.size());
+		for (const auto& gltfImage : model.images) {
+			char progressBarText[200];
+			snprintf(progressBarText, sizeof(progressBarText), "Loading \"%s\"", gltfImage.uri.c_str());
+			logProgressBar(texturePool.size() + 1 - baseTextureOffset, model.images.size(), 20, progressBarText);
+			texturePool.emplace_back(std::make_unique<Texture>(device, dmm, rth, path.parent_path() / std::filesystem::path(gltfImage.uri)));
+			rth.freeCompletedTransfers();
+		}
+		logProgressBarFinish(model.images.size(), 20, "");
 	}
 
 	// Load lights
-	LOG_INFO("Loading %d punctual lights", model.lights.size());
-	uint32_t baseLightOffset = lightGlobalToTypeIndex.size();
-	lightGlobalToTypeIndex.reserve(lightGlobalToTypeIndex.size() + model.lights.size());
-	for (const auto& gltfLight : model.lights) {
-		if (gltfLight.type == "point") {
-			PointLight light;
-			light.colour = gltfLight.color.size() == 0 ? glm::vec3(0.0f) : glm::make_vec3(gltfLight.color.data());
-			light.intensity = gltfLight.intensity;
-			light.range = gltfLight.range;
-			lightGlobalToTypeIndex.push_back(std::make_tuple(LightTypes::Point, static_cast<uint32_t>(pointLights.size())));
-			pointLights.push_back(light);
-		} else if (gltfLight.type == "directional") {
-			DirectionalLight light;
-			light.colour = glm::make_vec3(gltfLight.color.data());
-			light.intensity = gltfLight.intensity;
-			lightGlobalToTypeIndex.push_back(std::make_tuple(LightTypes::Directional, static_cast<uint32_t>(directionalLights.size())));
-			directionalLights.push_back(light);
+	if (model.lights.size() > 0) {
+		LOG_INFO("Loading %d punctual lights", model.lights.size());
+		lightGlobalToTypeIndex.reserve(lightGlobalToTypeIndex.size() + model.lights.size());
+		for (const auto& gltfLight : model.lights) {
+			char progressBarText[200];
+			snprintf(progressBarText, sizeof(progressBarText), "Loading \"%s\"", gltfLight.name);
+			logProgressBar(lightGlobalToTypeIndex.size() + 1 - baseLightOffset, model.lights.size(), 20, progressBarText);
+
+			if (gltfLight.type == "point") {
+				PointLight light;
+				light.colour = gltfLight.color.size() == 0 ? glm::vec3(0.0f) : glm::make_vec3(gltfLight.color.data());
+				light.intensity = gltfLight.intensity;
+				light.range = gltfLight.range;
+				lightGlobalToTypeIndex.push_back(std::make_tuple(LightTypes::Point, static_cast<uint32_t>(pointLights.size())));
+				pointLights.push_back(light);
+			} else if (gltfLight.type == "directional") {
+				DirectionalLight light;
+				light.colour = glm::make_vec3(gltfLight.color.data());
+				light.intensity = gltfLight.intensity;
+				lightGlobalToTypeIndex.push_back(std::make_tuple(LightTypes::Directional, static_cast<uint32_t>(directionalLights.size())));
+				directionalLights.push_back(light);
+			}
 		}
+		logProgressBarFinish(lightGlobalToTypeIndex.size() + 1 - baseLightOffset, 20, "");
 	}
 
-	LOG_INFO("Processing %d nodes", model.nodes.size());
+	LOG_INFO("Processing scene graph with <=%d nodes", model.nodes.size());
 	auto& modelRoot = addNode(parent, localTransform);
+	uint32_t baseObjectCount = this->objectCount;
 	for (const auto& nodeIdx : model.scenes[0].nodes)
-		processModelRecursive(&modelRoot, model, model.nodes[nodeIdx]);
-
+		processModelRecursive(&modelRoot, model, model.nodes[nodeIdx], baseObjectCount);
+	logProgressBarFinish(this->objectCount - baseObjectCount, 20, "");
 	LOG_INFO("Finished loading model %s", path.filename().string().c_str());
 }
 
@@ -290,7 +315,11 @@ void Scene::uploadResources() {
 	LOG_INFO("Scene resources uploaded");
 }
 
-void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node) {
+void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, uint32_t baseObjectCount) {
+	char progressBarText[200];
+	snprintf(progressBarText, sizeof(progressBarText), "(~) Processing \"%s\"", node.name.c_str());
+	logProgressBar(this->objectCount + 1 - baseObjectCount, model.nodes.size(), 20, progressBarText);
+
 	uint32_t baseMeshOffset = meshPool.size() - model.meshes.size();
 	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
 	uint32_t baseLightOffset = lightGlobalToTypeIndex.size() - model.lights.size();
@@ -344,7 +373,7 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 	auto& so = addNode(parent, localTransform, nodeMeshIdx);
 	maxDepth = std::max(maxDepth, so.depth);
 	for (const auto& childNodeIdx : node.children)
-		processModelRecursive(&so, model, model.nodes[childNodeIdx]);
+		processModelRecursive(&so, model, model.nodes[childNodeIdx], baseObjectCount);
 }
 
 // TODO: move to compute shader and account for emissive texture

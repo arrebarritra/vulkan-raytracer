@@ -112,7 +112,7 @@ public:
 	iterator end() { return iterator(nullptr, 0); };
 
 private:
-	void processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node);
+	void processModelRecursive(SceneObject* parent, const tinygltf::Model& model, const tinygltf::Node& node, uint32_t baseObjectCount);
 	void processEmissivePrimitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive, const glm::mat4 localTransform);
 
 	vk::SharedDevice device;

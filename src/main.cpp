@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
 
 	args::Group skyboxParams(parser, "Skybox settings");
 	args::ImplicitValueFlag<std::string> skybox(skyboxParams, "skybox", "Skybox file", { "skybox" }, "hilly_terrain_01_4k.hdr", args::Options::Single);
-	args::ImplicitValueFlag<float> skyboxStrength(skyboxParams, "skybox", "Skybox strength multiplier", { "skybox-strength" }, 1.0f, args::Options::Single);
+	args::ImplicitValueFlag<float> skyboxStrength(skyboxParams, "skyboxStrength", "Skybox strength multiplier", { "skybox-strength" }, 1.0f, args::Options::Single);
 
 	try {
 		parser.ParseCLI(argc, argv);

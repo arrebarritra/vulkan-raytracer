@@ -48,12 +48,15 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 	scene.uploadResources();
 	rth->flushPendingTransfers();
 
+	LOG_INFO("Building acceleration struture");
 	as = std::make_unique<AccelerationStructure>(device, *dmm, *rth, scene, graphicsQueue);
 	rth->flushPendingTransfers();
 
-	// Upload uniforms
+	LOG_INFO("Loading skybox: %s", skyboxFile.c_str());
 	skyboxTexture = std::make_unique<Texture>(device, *dmm, *rth, std::filesystem::path(skyboxFile));
 
+	// Upload uniforms
+	LOG_INFO("Uploading uniforms");
 	camera.position = cameraPos;
 	camera.direction = cameraDir;
 	camProps = CameraProperties{ camera.getViewInv(), camera.getProjectionInv() };
@@ -70,11 +73,14 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 	uniformPathTracingProps = std::make_unique<Buffer>(device, *dmm, *rth, uniformPathTracingPropsCI, vk::ArrayProxyNoTemporaries{ sizeof(PathTracingProperties), (char*)&pathTracingProps }, MemoryStorage::DeviceDynamic);
 
 	// Create resources
+	LOG_INFO("Preparing ray tracing pipeline");
 	createRaytracingPipeline();
 	createShaderBindingTable();
 	createDescriptorSets();
 	updateDescriptorSets();
 	rth->flushPendingTransfers();
+
+	LOG_INFO("Finished");
 
 	glfwShowWindow(window);
 }
