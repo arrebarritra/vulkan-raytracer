@@ -11,7 +11,7 @@ namespace vkrt {
 
 class Raytracer : public Application {
 public:
-	Raytracer(uint32_t maxRayDepth, std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength);
+	Raytracer(uint32_t width, uint32_t height, uint32_t maxRayDepth, std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength);
 	~Raytracer() = default;
 
 private:

@@ -23,8 +23,8 @@ auto asFeatures = vk::PhysicalDeviceAccelerationStructureFeaturesKHR{}.setAccele
 auto rtpFeatures = vk::PhysicalDeviceRayTracingPipelineFeaturesKHR{}.setRayTracingPipeline(vk::True).setPNext(&asFeatures);
 const void* Raytracer::raytracingFeaturesChain = &rtpFeatures;
 
-Raytracer::Raytracer(uint32_t maxRayDepth, std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength)
-	: Application("Vulkan raytracer", 1280, 720, vk::ApiVersion11,
+Raytracer::Raytracer(uint32_t width, uint32_t height, uint32_t maxRayDepth, std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength)
+	: Application("Vulkan raytracer", width, height, vk::ApiVersion11,
 				  nullptr, nullptr, raytracingRequiredExtensions, raytracingFeaturesChain,
 				  true, false, false, FRAMES_IN_FLIGHT,
 				  vk::ImageUsageFlagBits::eTransferDst, { vk::Format::eB8G8R8A8Srgb },
