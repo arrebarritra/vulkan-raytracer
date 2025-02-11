@@ -21,7 +21,7 @@ SceneObject& Scene::addNode(SceneObject* parent, glm::mat4& localTransform, int 
 }
 
 void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4& localTransform) {
-	LOG_INFO("Loading model %s", path.filename().string().c_str());
+	LOG_INFO("Loading model \"%s\"", path.filename().string().c_str());
 	tinygltf::Model model;
 	tinygltf::TinyGLTF context;
 	std::string err, warn;

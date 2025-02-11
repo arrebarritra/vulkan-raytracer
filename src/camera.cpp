@@ -19,6 +19,8 @@ void Camera::processKeyInput(GLFWwindow* window, double dt) {
 	float speedMul;
 	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
 		speedMul = 3.0f;
+	else if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+		speedMul = 0.2f;
 	else
 		speedMul = 1.0f;
 
