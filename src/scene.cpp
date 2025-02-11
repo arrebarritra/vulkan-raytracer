@@ -191,13 +191,17 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 			if (auto volume = gltfMaterial.extensions.find("KHR_materials_volume"); volume != gltfMaterial.extensions.end()) {
 				if (volume->second.Has("thicknessFactor"))
 					material.thicknessFactor = volume->second.Get("thicknessFactor").GetNumberAsDouble();
+
+				float attenuationDistance = std::numeric_limits<float>::infinity();
+				glm::vec3 attenuationColour = glm::vec3(1.0f);
 				if (volume->second.Has("attenuationDistance"))
-					material.attenuationDistance = volume->second.Get("attenuationDistance").GetNumberAsDouble();
+					attenuationDistance = volume->second.Get("attenuationDistance").GetNumberAsDouble();
 				if (volume->second.Has("attenuationColor")) {
 					assert(volume->second.Get("attenuationColor").ArrayLen() == 3);
 					for (int i = 0; i < 3; i++)
-						material.attenuationColour[i] = volume->second.Get("attenuationColor").Get(i).GetNumberAsDouble();
+						attenuationColour[i] = volume->second.Get("attenuationColor").Get(i).GetNumberAsDouble();
 				}
+				material.attenuationCoefficient = -glm::log(attenuationColour) / attenuationDistance;
 			}
 			materials.push_back(material);
 		}

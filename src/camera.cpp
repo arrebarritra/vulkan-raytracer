@@ -52,7 +52,7 @@ void Camera::cursorPosCallback(GLFWwindow* window, double dx, double dy) {
 		if (dx != 0.0 || dy != 0.0) directionChanged = true;
 	}
 	if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
-		fov = glm::max(glm::min(fov + 0.01 * dy, 100.0 * (glm::pi<float>() / 180.0)), 20.0 * (glm::pi<float>() / 180.0));
+		fov = glm::clamp(fov + 0.01 * dy, 10.0 * (glm::pi<float>() / 180.0), 150.0 * (glm::pi<float>() / 180.0));
 		if (dx != 0.0 || dy != 0.0) directionChanged = true;
 	}
 }

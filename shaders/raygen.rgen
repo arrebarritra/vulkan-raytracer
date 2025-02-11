@@ -17,7 +17,8 @@ layout(binding = 3, set = 0, scalar) uniform CameraProperties {
 } cam;
 
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
-    uint sampleCount, maxRayDepth, skyboxStrength;
+    uint sampleCount, maxRayDepth;
+    float skyboxStrength;
 } pathTracing;
 
 layout(location = 0) rayPayloadEXT RayPayload payload;

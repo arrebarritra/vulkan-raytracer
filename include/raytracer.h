@@ -11,7 +11,7 @@ namespace vkrt {
 
 class Raytracer : public Application {
 public:
-	Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength);
+	Raytracer(uint32_t maxRayDepth, std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength);
 	~Raytracer() = default;
 
 private:
@@ -21,7 +21,8 @@ private:
 	CameraProperties camProps;
 
 	struct PathTracingProperties {
-		uint32_t sampleCount, maxRayDepth = 5u, skyboxStrength = 1u;
+		uint32_t sampleCount, maxRayDepth;
+		float skyboxStrength;
 	};
 	PathTracingProperties pathTracingProps;
 

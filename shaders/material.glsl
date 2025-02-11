@@ -5,8 +5,8 @@ struct Material {
 	vec3 emissiveFactor;
 	float roughnessFactor, metallicFactor;
 	float transmissionFactor;
-	float thicknessFactor, attenuationDistance;
-	vec3 attenuationColour;
+	float thicknessFactor;
+	vec3 attenuationCoefficient;
 	float ior;
 	int baseColourTexIdx, metallicRoughnessTexIdx, normalTexIdx, emissiveTexIdx, transmissionTexIdx;
 	bool doubleSided;

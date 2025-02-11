@@ -3,7 +3,8 @@
 #extension GL_EXT_scalar_block_layout : require
 
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
-    uint sampleCount, maxRayDepth, skyboxStrength;
+    uint sampleCount, maxRayDepth;
+    float skyboxStrength;
 } pathTracing;
 layout(binding = 11, set = 0) uniform sampler2D skyboxTexture;
 

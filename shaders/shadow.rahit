@@ -15,8 +15,9 @@
 #include "payload.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 4, set = 0, scalar) uniform PathTracingProperties {
+layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
     uint sampleCount, maxRayDepth;
+    float skyboxStrength;
 } pathTracing;
 
 layout(location = 1) rayPayloadInEXT ShadowPayload payload;

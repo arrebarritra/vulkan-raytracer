@@ -23,7 +23,7 @@ auto asFeatures = vk::PhysicalDeviceAccelerationStructureFeaturesKHR{}.setAccele
 auto rtpFeatures = vk::PhysicalDeviceRayTracingPipelineFeaturesKHR{}.setRayTracingPipeline(vk::True).setPNext(&asFeatures);
 const void* Raytracer::raytracingFeaturesChain = &rtpFeatures;
 
-Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength)
+Raytracer::Raytracer(uint32_t maxRayDepth, std::vector<std::string> modelFiles, std::vector<glm::mat4> transforms, glm::vec3 cameraPos, glm::vec3 cameraDir, std::string skyboxFile, float skyboxStrength)
 	: Application("Vulkan raytracer", 1280, 720, vk::ApiVersion11,
 				  nullptr, nullptr, raytracingRequiredExtensions, raytracingFeaturesChain,
 				  true, false, false, FRAMES_IN_FLIGHT,
@@ -52,8 +52,9 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 	as = std::make_unique<AccelerationStructure>(device, *dmm, *rth, scene, graphicsQueue);
 	rth->flushPendingTransfers();
 
+
 	LOG_INFO("Loading skybox: %s", skyboxFile.c_str());
-	skyboxTexture = std::make_unique<Texture>(device, *dmm, *rth, std::filesystem::path(skyboxFile));
+	skyboxTexture = std::make_unique<Texture>(device, *dmm, *rth, std::filesystem::path(RESOURCE_DIR + skyboxFile));
 
 	// Upload uniforms
 	LOG_INFO("Uploading uniforms");
@@ -66,6 +67,7 @@ Raytracer::Raytracer(std::vector<std::string> modelFiles, std::vector<glm::mat4>
 	uniformCameraProps = std::make_unique<Buffer>(device, *dmm, *rth, uniformCameraPropsCI, vk::ArrayProxyNoTemporaries{ sizeof(CameraProperties), (char*)&camProps }, MemoryStorage::DeviceDynamic);
 
 	pathTracingProps.sampleCount = 0u;
+	pathTracingProps.maxRayDepth = maxRayDepth;
 	pathTracingProps.skyboxStrength = skyboxStrength;
 	auto uniformPathTracingPropsCI = vk::BufferCreateInfo{}
 		.setSize(sizeof(PathTracingProperties))

@@ -88,6 +88,9 @@ int main(int argc, char** argv) {
 	);
 	args::HelpFlag help(parser, "help", "Display this help menu", { 'h', "help" });
 	
+	args::Group pathTracingSettings(parser, "Path tracing settings");
+	args::ImplicitValueFlag<uint32_t> maxRayDepth(pathTracingSettings, "maxRayDepth", "Max ray depth", { 'b', "max-ray-depth" }, 5u, args::Options::Single);
+
 	args::ValueFlagList<std::string> models(parser, "models", "glTF model file(s)", { 'm', "models" });
 
 	args::Group transform(parser, "Transform modifiers - the n:th transform modifier will affect the transform of n:th model provided. Use comma separated list to specify values or \'d\' to use default value.");
@@ -129,6 +132,6 @@ int main(int argc, char** argv) {
 		transforms.push_back(transform);
 	}
 
-	auto rt = vkrt::Raytracer(modelFiles, transforms, cameraPos ? cameraPos.Get() : cameraDefaultPos, cameraDir ? cameraDir.Get() : cameraDefaultDir, RESOURCE_DIR + skybox.Get(), skyboxStrength.Get());
+	auto rt = vkrt::Raytracer(maxRayDepth.Get(), modelFiles, transforms, cameraPos ? cameraPos.Get() : cameraDefaultPos, cameraDir ? cameraDir.Get() : cameraDefaultDir, skybox.Get(), skyboxStrength.Get());
 	rt.renderLoop();
 }
