@@ -3,18 +3,19 @@ struct Material {
 	int alphaMode;
 	float alphaCutoff;
 	vec3 emissiveFactor;
-	float roughnessFactor, metallicFactor;
+	float metallicFactor, roughnessFactor;
 	float transmissionFactor;
 	float thicknessFactor;
 	vec3 attenuationCoefficient;
 	float ior;
-	int baseColourTexIdx, metallicRoughnessTexIdx, normalTexIdx, emissiveTexIdx, transmissionTexIdx;
+	float anisotropyStrength, anisotropyRotation;
+	int baseColourTexIdx, metallicRoughnessTexIdx, normalTexIdx, emissiveTexIdx, transmissionTexIdx, anisotropyTexIdx;
 	bool doubleSided;
 };
 
 struct ShaderMaterial {
 	vec3 albedo, emissive;
-	float roughness, metallic;
+	float alpha, metallic;
 	float transmission;
 	float attenuationDistance;
 	vec3 attenuationColour;

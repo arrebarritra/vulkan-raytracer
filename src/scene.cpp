@@ -153,10 +153,21 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 			logProgressBar(materials.size() + 1 - baseMaterialOffset, model.materials.size(), 20, progressBarText);
 			Material material;
 
+			// PBR metallic-roughness
 			material.baseColourFactor = glm::make_vec4(gltfMaterial.pbrMetallicRoughness.baseColorFactor.data());
 			if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index != -1)
 				material.baseColourTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.baseColorTexture.index].source;
 
+			material.metallicFactor = gltfMaterial.pbrMetallicRoughness.metallicFactor;
+			material.roughnessFactor = gltfMaterial.pbrMetallicRoughness.roughnessFactor;
+			if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index != -1)
+				material.metallicRoughnessTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index].source;
+			if (gltfMaterial.normalTexture.index != -1)
+				material.normalTexIdx = baseTextureOffset + model.textures[gltfMaterial.normalTexture.index].source;
+
+			material.doubleSided = gltfMaterial.doubleSided;
+
+			// Alpha
 			if (gltfMaterial.alphaMode == "OPAQUE")
 				material.alphaMode = 0;
 			else if (gltfMaterial.alphaMode == "MASK")
@@ -169,25 +180,21 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 			if (gltfMaterial.emissiveTexture.index != -1)
 				material.emissiveTexIdx = baseTextureOffset + model.textures[gltfMaterial.emissiveTexture.index].source;
 
-			material.metallicFactor = gltfMaterial.pbrMetallicRoughness.metallicFactor;
-			material.roughnessFactor = gltfMaterial.pbrMetallicRoughness.roughnessFactor;
-			if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index != -1)
-				material.metallicRoughnessTexIdx = baseTextureOffset + model.textures[gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index].source;
-			if (gltfMaterial.normalTexture.index != -1)
-				material.normalTexIdx = baseTextureOffset + model.textures[gltfMaterial.normalTexture.index].source;
-
-			material.doubleSided = gltfMaterial.doubleSided;
-
+			// Emissive strength
 			if (auto emissiveStrength = gltfMaterial.extensions.find("KHR_materials_emissive_strength"); emissiveStrength != gltfMaterial.extensions.end()) {
 				if (emissiveStrength->second.Has("emissiveStrength"))
 					material.emissiveFactor *= emissiveStrength->second.Get("emissiveStrength").GetNumberAsDouble();
 			}
+
+			// Transmission 
 			if (auto transmission = gltfMaterial.extensions.find("KHR_materials_transmission"); transmission != gltfMaterial.extensions.end()) {
 				if (transmission->second.Has("transmissionFactor"))
 					material.transmissionFactor = static_cast<float>(transmission->second.Get("transmissionFactor").GetNumberAsDouble());
 				if (transmission->second.Has("transmissionTexture"))
 					material.transmissionTexIdx = baseTextureOffset + model.textures[transmission->second.Get("transmissionTexture").Get("index").GetNumberAsInt()].source;
 			}
+
+			// Volume
 			if (auto volume = gltfMaterial.extensions.find("KHR_materials_volume"); volume != gltfMaterial.extensions.end()) {
 				if (volume->second.Has("thicknessFactor"))
 					material.thicknessFactor = volume->second.Get("thicknessFactor").GetNumberAsDouble();
@@ -203,6 +210,17 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 				}
 				material.attenuationCoefficient = -glm::log(attenuationColour) / attenuationDistance;
 			}
+
+			// Anisotropy
+			if (auto anisotropy = gltfMaterial.extensions.find("KHR_materials_anisotropy"); anisotropy != gltfMaterial.extensions.end()) {
+				if (anisotropy->second.Has("anisotropyStrength"))
+					material.anisotropyStrength = static_cast<float>(anisotropy->second.Get("anisotropyStrength").GetNumberAsDouble());
+				if (anisotropy->second.Has("anisotropyRotation"))
+					material.anisotropyStrength = static_cast<float>(anisotropy->second.Get("anisotropyRotation").GetNumberAsDouble());
+				if (anisotropy->second.Has("anisotropyTexture"))
+					material.anisotropyTexIdx = baseTextureOffset + model.textures[anisotropy->second.Get("anisotropyTexture").Get("index").GetNumberAsInt()].source;
+			}
+
 			materials.push_back(material);
 		}
 		logProgressBarFinish(model.materials.size(), 20, "");

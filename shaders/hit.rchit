@@ -29,7 +29,9 @@ struct HitInfo {
     vec3 pos, normal, tangent, bitangent, baseColour;
     bool ffnormal;
     vec3 emissiveColour;
-    float roughness, metallic;
+    float metallic;
+    vec2 alphaRoughness;
+    vec2 anisotropyDirection;
     float transmissionFactor;
 };
 
@@ -90,13 +92,25 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     hitInfo.ffnormal = dot(hitInfo.normal, view) >= 0.0;
     hitInfo.normal = hitInfo.ffnormal ? hitInfo.normal : -hitInfo.normal;
 
-    hitInfo.roughness = material.roughnessFactor;
     hitInfo.metallic = material.metallicFactor;
+    hitInfo.alphaRoughness = vec2(material.roughnessFactor);
     if (material.metallicRoughnessTexIdx != -1) {
         vec2 metallicRoughness = textureGet(material.metallicRoughnessTexIdx, uv).bg;
         hitInfo.metallic *= metallicRoughness.x;
-        hitInfo.roughness *= metallicRoughness.y;
+        hitInfo.alphaRoughness *= metallicRoughness.y;
     }
+    hitInfo.alphaRoughness *= hitInfo.alphaRoughness;
+    hitInfo.alphaRoughness = max(vec2(0.001), hitInfo.alphaRoughness);
+
+    float anisotropyRotation = material.anisotropyRotation;
+    float anisotropyStrength = material.anisotropyStrength;
+    if (material.anisotropyTexIdx != -1) {
+        vec3 anisotropy = textureGet(material.anisotropyTexIdx, uv).xyz;
+        anisotropyRotation += atan(anisotropy.y, anisotropy.x);
+        anisotropyStrength *= anisotropy.z;
+    }
+    hitInfo.alphaRoughness.x = mix(hitInfo.alphaRoughness.x, 1.0, anisotropyStrength * anisotropyStrength);
+    hitInfo.anisotropyDirection = vec2(cos(anisotropyRotation), sin(anisotropyRotation));
 
     return hitInfo;
 }
@@ -125,7 +139,7 @@ void main() {
     vec3 tView = invTBN * view;
 
     // Evaluate material sampling
-    payloadIn.direction = TBN * sampleMaterial(payloadIn.seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, mat.attenuationCoefficient, hitInfo.ffnormal, tView, payloadIn.reflectivity, payloadIn.materialSamplePDF);
+    payloadIn.direction = TBN * sampleMaterial(payloadIn.seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, mat.attenuationCoefficient, hitInfo.ffnormal, tView, payloadIn.reflectivity, payloadIn.materialSamplePDF);
 
     // Evaluate direct light sampling
     payloadIn.lightSample = vec3(0.0);
@@ -143,10 +157,10 @@ void main() {
 
     if (payloadIn.lightSample != vec3(0.0)) {
         lightSamplePDF /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
-        vec3 lightSampleBSDF = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0,  mat.attenuationCoefficient, hitInfo.ffnormal, tView, invTBN * lightDir);
+        vec3 lightSampleBSDF = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0,  mat.attenuationCoefficient, hitInfo.ffnormal, tView, invTBN * lightDir);
         float MISWeight = 1.0;
         if (!deltaLight) {
-            float materialSamplePDF = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.roughness, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0,hitInfo.ffnormal, tView, invTBN * lightDir);
+            float materialSamplePDF = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, hitInfo.ffnormal, tView, invTBN * lightDir);
             MISWeight = balanceHeuristic(lightSamplePDF, materialSamplePDF);
         }
         payloadIn.lightSample *= lightSampleBSDF == vec3(0.0) ? vec3(0.0) : MISWeight * lightSampleBSDF / lightSamplePDF * abs(dot(hitInfo.normal, lightDir));
