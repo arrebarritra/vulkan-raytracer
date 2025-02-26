@@ -35,6 +35,7 @@ void main() {
     vec3 target = vec3(cam.projInverse * vec4(d.x, d.y, 1, 1));
     payload.origin = vec3(cam.viewInverse * vec4(0,0,0,1));
     payload.direction = normalize(vec3(cam.viewInverse * vec4(normalize(target.xyz), 0)));
+    payload.collapsedWavelength = 0.0;
     payload.materialSamplePDF = 1.0;
     payload.scatter = true;
 

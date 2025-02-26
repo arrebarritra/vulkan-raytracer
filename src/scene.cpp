@@ -221,6 +221,12 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 					material.anisotropyTexIdx = baseTextureOffset + model.textures[anisotropy->second.Get("anisotropyTexture").Get("index").GetNumberAsInt()].source;
 			}
 
+			// Dispersion
+			if (auto dispersion = gltfMaterial.extensions.find("KHR_materials_dispersion"); dispersion != gltfMaterial.extensions.end()) {
+				if (dispersion->second.Has("dispersion"))
+					material.dispersion = static_cast<float>(dispersion->second.Get("dispersion").GetNumberAsDouble());
+			}
+
 			materials.push_back(material);
 		}
 		logProgressBarFinish(model.materials.size(), 20, "");

@@ -125,7 +125,8 @@ void main() {
     if (hitInfo.emissiveColour != vec3(0.0)) {
         if (numEmissiveTriangles > 0) {
         emissivePDFPayload.pdf = 0;
-            traceRayEXT(topLevelAS, gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsNoOpaqueEXT, 1u << 1, 3, 0, 2, gl_WorldRayOriginEXT, EPS, gl_WorldRayDirectionEXT, INF, 3);
+            traceRayEXT(topLevelAS, gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsNoOpaqueEXT, 1u << 1, 3, 0, 2, gl_WorldRayOriginEXT, EPS,
+                    gl_WorldRayDirectionEXT, INF, 3);
             if (payloadIn.bounce > 0)
                 payloadIn.emittedLight *= balanceHeuristic(payloadIn.materialSamplePDF, emissivePDFPayload.pdf);
         }
@@ -139,7 +140,9 @@ void main() {
     vec3 tView = invTBN * view;
 
     // Evaluate material sampling
-    payloadIn.direction = TBN * sampleMaterial(payloadIn.seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, mat.attenuationCoefficient, hitInfo.ffnormal, tView, payloadIn.reflectivity, payloadIn.materialSamplePDF);
+    payloadIn.direction = TBN * sampleMaterial(payloadIn.seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, 
+                                        hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, mat.attenuationCoefficient, mat.dispersion,
+                                        hitInfo.ffnormal, tView, payloadIn.reflectivity, payloadIn.materialSamplePDF);
 
     // Evaluate direct light sampling
     payloadIn.lightSample = vec3(0.0);
@@ -157,10 +160,12 @@ void main() {
 
     if (payloadIn.lightSample != vec3(0.0)) {
         lightSamplePDF /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
-        vec3 lightSampleBSDF = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0,  mat.attenuationCoefficient, hitInfo.ffnormal, tView, invTBN * lightDir);
+        vec3 lightSampleBSDF = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor,
+                                        mat.ior, mat.thicknessFactor == 0.0,  mat.attenuationCoefficient, hitInfo.ffnormal, tView, invTBN * lightDir);
         float MISWeight = 1.0;
         if (!deltaLight) {
-            float materialSamplePDF = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, hitInfo.ffnormal, tView, invTBN * lightDir);
+            float materialSamplePDF = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, 
+                                        mat.ior, mat.thicknessFactor == 0.0, hitInfo.ffnormal, tView, invTBN * lightDir);
             MISWeight = balanceHeuristic(lightSamplePDF, materialSamplePDF);
         }
         payloadIn.lightSample *= lightSampleBSDF == vec3(0.0) ? vec3(0.0) : MISWeight * lightSampleBSDF / lightSamplePDF * abs(dot(hitInfo.normal, lightDir));

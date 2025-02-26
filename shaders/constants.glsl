@@ -5,4 +5,11 @@
 #define EPS 1e-7
 #define INF 1e32
 
+#define LAMBDA_F 486.13
+#define INV_LAMBDA_F_SQ 0.00205706292555
+#define LAMBDA_D 587.56
+#define INV_LAMBDA_D_SQ 0.00170195384301
+#define LAMBDA_C 656.27
+#define INV_LAMBDA_C_SQ 0.00152376308532
+
 #endif

@@ -3,6 +3,7 @@
 
 #include "maths.glsl"
 #include "random.glsl"
+#include "spectral.glsl"
 
 vec3 diffuseBRDF(vec3 colour, vec3 L) {
 	return float(L.z > 0.0) * colour * PIINV;
@@ -294,7 +295,7 @@ vec3 materialBSDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDi
 	return vec3(0.0);
 }
 
-vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDirection, float transmissionFactor, float ior, bool thin, vec3 attenuationCoefficient, bool ffnormal, vec3 view, out vec3 estimator, out float pdf) {
+vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDirection, float transmissionFactor, float ior, bool thin, vec3 attenuationCoefficient, float dispersion, bool ffnormal, vec3 view, out vec3 estimator, out float pdf) {
 	estimator = vec3(0.0);
 	vec3 direction = vec3(0.0); vec3 bsdf = vec3(0.0);
 	pdf = 0.0;
@@ -309,6 +310,19 @@ vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, vec2 a
 	float GGXSamplePDF;
 	float pTransmission = (1 - metallic) * transmissionFactor;
 	float pDiffuse = 0.5 * (1 - metallic);
+
+	if (dispersion != 0.0) {
+		if (payloadIn.collapsedWavelength == 0.0) {
+			payloadIn.collapsedWavelength = rnd(previous, 400.0, 700.0);
+			baseColour *= spectralColour1931(payloadIn.collapsedWavelength);
+		}
+
+		float wavelengthSq = payloadIn.collapsedWavelength * payloadIn.collapsedWavelength;
+		float B = (ior - 1) * dispersion / (20 * (INV_LAMBDA_F_SQ - INV_LAMBDA_C_SQ));
+		float A = ior - B * INV_LAMBDA_D_SQ;
+		ior = max(ior + (ior - 1) * dispersion / 20 * (523655 / wavelengthSq - 1.5168), 1);
+	}
+
 	if (rnd(previous) < pTransmission) {
 		halfway = sampleGGXVNDF(previous, alpha, anisotropyDirection, view);
 		if (thin) {

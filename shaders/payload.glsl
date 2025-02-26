@@ -2,6 +2,7 @@ struct RayPayload {
     uint seed, bounce;
     vec3 origin, direction;
     vec3 reflectivity, lightSample, emittedLight;
+    float wavelength;
     float materialSamplePDF;
     bool scatter;
 };

@@ -43,6 +43,11 @@ float rnd(inout uint previous)
 
 //------------------------------------------------------------------------
 
+// Generate random float in [min, max] given previous RNG state
+float rnd(inout uint previous, float min, float max) {
+    return min + rnd(previous) * (max - min);
+}
+
 // Generate random int in [min, max] given previous RNG state
 int rnd(inout uint previous, int min, int max) {
     return int(lcg(previous) % (max - min + 1) + min);

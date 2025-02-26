@@ -9,6 +9,7 @@ struct Material {
 	vec3 attenuationCoefficient;
 	float ior;
 	float anisotropyStrength, anisotropyRotation;
+	float dispersion;
 	int baseColourTexIdx, metallicRoughnessTexIdx, normalTexIdx, emissiveTexIdx, transmissionTexIdx, anisotropyTexIdx;
 	bool doubleSided;
 };
