@@ -24,17 +24,18 @@ layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
 layout(location = 3) rayPayloadInEXT EmissivePDFPayload payload;
 hitAttributeEXT vec2 attribs;
 
-struct HitInfo {
+struct EmissiveHitInfo {
+    uint emissiveSurfaceIdx;
     vec3 normal;
     float area;
 };
 
-HitInfo unpackTriangle(uint idx, vec3 weights) {
+EmissiveHitInfo unpackTriangle(uint idx, vec3 weights) {
     GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
     
-    HitInfo hitInfo;
+    EmissiveHitInfo hitInfo;
     hitInfo.normal = vec3(0.0);
     vec2 uv = vec2(0.0);
     vec3 v[3];
@@ -46,6 +47,7 @@ HitInfo unpackTriangle(uint idx, vec3 weights) {
         hitInfo.normal += vertex.normal * weights[i];
         uv += vertex.uv * weights[i];
     }
+    hitInfo.emissiveSurfaceIdx = geometryInfo.emissiveSurfaceIdx;
     hitInfo.area = 0.5 * length(cross(v[1] - v[0], v[2] - v[0]));
     hitInfo.normal = sign(dot(-gl_WorldRayDirectionEXT, hitInfo.normal)) * normalize(hitInfo.normal);
 
@@ -54,13 +56,12 @@ HitInfo unpackTriangle(uint idx, vec3 weights) {
 
 void main() {
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords);
+    EmissiveHitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords);
     
     // We do not check if triangle is emissive since the ray cullMask will assure we only intersect emissive surfaces
-    EmissiveSurface es = emissiveSurfaces[gl_InstanceCustomIndexEXT];
-    float pTriangle = gl_PrimitiveID == 0 ? emissiveTriangles[es.baseEmissiveTriangleIdx].pHeuristic : 
+    EmissiveSurface es = emissiveSurfaces[hitInfo.emissiveSurfaceIdx];
+    float pTriangle = hitInfo.emissiveSurfaceIdx == 0 && gl_PrimitiveID == 0 ? emissiveTriangles[es.baseEmissiveTriangleIdx].pHeuristic : 
         emissiveTriangles[es.baseEmissiveTriangleIdx + gl_PrimitiveID].pHeuristic - emissiveTriangles[es.baseEmissiveTriangleIdx + gl_PrimitiveID - 1].pHeuristic;
     payload.pdf += pTriangle * (gl_HitTEXT * gl_HitTEXT) / (hitInfo.area * dot(hitInfo.normal, -gl_WorldRayDirectionEXT));
-
     ignoreIntersectionEXT;
 }

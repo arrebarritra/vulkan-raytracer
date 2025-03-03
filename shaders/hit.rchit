@@ -14,6 +14,9 @@
 #include "constants.glsl"
 #include "random.glsl"
 #include "sampling.glsl"
+#include "light.glsl"
+#include "bsdf.glsl"
+#include "hit.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
@@ -21,31 +24,20 @@ layout(binding = 4, set = 0, scalar) uniform PathTracingProperties{
     float skyboxStrength;
 } pathTracing;
 
-
 layout(location = 0) rayPayloadInEXT RayPayload payloadIn;
+layout(location = 3) rayPayloadEXT EmissivePDFPayload emissivePDFPayload;
 hitAttributeEXT vec2 attribs;
 
-struct HitInfo {
-    vec3 pos, normal, tangent, bitangent, baseColour;
-    bool ffnormal;
-    vec3 emissiveColour;
-    float metallic;
-    vec2 alphaRoughness;
-    vec2 anisotropyDirection;
-    float transmissionFactor;
-};
-
-#include "bsdf.glsl"
-#include "lightsample.glsl"
-
-HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
+HitInfo unpackTriangle(uint idx, vec3 weights) {
     GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
-    material = materials[geometryInfo.materialIdx];
+    Material material = materials[geometryInfo.materialIdx];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
     vec3 view = -gl_WorldRayDirectionEXT;
 
     HitInfo hitInfo;
+    hitInfo.t = gl_HitTEXT;
+
     hitInfo.pos = vec3(0.0);
     hitInfo.normal = vec3(0.0);
     hitInfo.tangent = vec3(0.0);
@@ -64,18 +56,6 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
 
     hitInfo.pos = vec3(gl_ObjectToWorldEXT * vec4(hitInfo.pos, 1.0));
 
-    hitInfo.baseColour = material.baseColourFactor.rgb;
-    if (material.baseColourTexIdx != -1)
-        hitInfo.baseColour *= textureGet(material.baseColourTexIdx, uv).rgb;
-    
-    hitInfo.emissiveColour = material.emissiveFactor;
-    if (material.emissiveTexIdx != -1)
-        hitInfo.emissiveColour *= textureGet(material.emissiveTexIdx, uv).rgb;
-
-    hitInfo.transmissionFactor = material.transmissionFactor;
-    if (material.transmissionTexIdx != -1)
-        hitInfo.transmissionFactor *= textureGet(material.transmissionTexIdx, uv).r;
-
     mat3 rotation = transpose(mat3(gl_WorldToObjectEXT));
     hitInfo.normal = normalize(rotation * hitInfo.normal);
     if (hitInfo.tangent != vec3(0.0)) {
@@ -89,18 +69,35 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
     } else {
         branchlessONB(hitInfo.normal, hitInfo.tangent, hitInfo.bitangent);
     }
-    hitInfo.ffnormal = dot(hitInfo.normal, view) >= 0.0;
-    hitInfo.normal = hitInfo.ffnormal ? hitInfo.normal : -hitInfo.normal;
+    hitInfo.frontFace = dot(hitInfo.normal, view) >= 0.0;
+    hitInfo.normal = hitInfo.frontFace ? hitInfo.normal : -hitInfo.normal;
 
-    hitInfo.metallic = material.metallicFactor;
-    hitInfo.alphaRoughness = vec2(material.roughnessFactor);
+    hitInfo.hitMat.baseColour = material.baseColourFactor.rgb;
+    if (material.baseColourTexIdx != -1)
+        hitInfo.hitMat.baseColour *= textureGet(material.baseColourTexIdx, uv).rgb;
+    
+    hitInfo.hitMat.emissiveColour = material.emissiveFactor;
+    if (material.emissiveTexIdx != -1)
+        hitInfo.hitMat.emissiveColour *= textureGet(material.emissiveTexIdx, uv).rgb;
+
+    hitInfo.hitMat.transmissionFactor = material.transmissionFactor;
+    if (material.transmissionTexIdx != -1)
+        hitInfo.hitMat.transmissionFactor *= textureGet(material.transmissionTexIdx, uv).r;
+
+    hitInfo.hitMat.metallic = material.metallicFactor;
+    hitInfo.hitMat.alpha = vec2(material.roughnessFactor);
     if (material.metallicRoughnessTexIdx != -1) {
         vec2 metallicRoughness = textureGet(material.metallicRoughnessTexIdx, uv).bg;
-        hitInfo.metallic *= metallicRoughness.x;
-        hitInfo.alphaRoughness *= metallicRoughness.y;
+        hitInfo.hitMat.metallic *= metallicRoughness.x;
+        hitInfo.hitMat.alpha *= metallicRoughness.y;
     }
-    hitInfo.alphaRoughness *= hitInfo.alphaRoughness;
-    hitInfo.alphaRoughness = max(vec2(0.001), hitInfo.alphaRoughness);
+    hitInfo.hitMat.alpha *= hitInfo.hitMat.alpha;
+    hitInfo.hitMat.alpha = max(vec2(0.001), hitInfo.hitMat.alpha);
+
+    hitInfo.hitMat.ior = material.ior;
+    hitInfo.hitMat.thin = material.thicknessFactor == 0;
+    hitInfo.hitMat.attenuationCoefficient = material.attenuationCoefficient;
+    hitInfo.hitMat.dispersion = material.dispersion;
 
     float anisotropyRotation = material.anisotropyRotation;
     float anisotropyStrength = material.anisotropyStrength;
@@ -109,69 +106,12 @@ HitInfo unpackTriangle(uint idx, vec3 weights, out Material material) {
         anisotropyRotation += atan(anisotropy.y, anisotropy.x);
         anisotropyStrength *= anisotropy.z;
     }
-    hitInfo.alphaRoughness.x = mix(hitInfo.alphaRoughness.x, 1.0, anisotropyStrength * anisotropyStrength);
-    hitInfo.anisotropyDirection = vec2(cos(anisotropyRotation), sin(anisotropyRotation));
-
+    hitInfo.hitMat.alpha.x = mix(hitInfo.hitMat.alpha.x, 1.0, anisotropyStrength * anisotropyStrength);
+    hitInfo.hitMat.anisotropyDirection = vec2(cos(anisotropyRotation), sin(anisotropyRotation));
     return hitInfo;
 }
 
 void main() {
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    vec3 view = -gl_WorldRayDirectionEXT;
-    Material mat;
-    HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords, mat);
-
-    payloadIn.emittedLight = hitInfo.emissiveColour;
-    if (hitInfo.emissiveColour != vec3(0.0)) {
-        if (numEmissiveTriangles > 0) {
-        emissivePDFPayload.pdf = 0;
-            traceRayEXT(topLevelAS, gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsNoOpaqueEXT, 1u << 1, 3, 0, 2, gl_WorldRayOriginEXT, EPS,
-                    gl_WorldRayDirectionEXT, INF, 3);
-            if (payloadIn.bounce > 0)
-                payloadIn.emittedLight *= balanceHeuristic(payloadIn.materialSamplePDF, emissivePDFPayload.pdf);
-        }
-        payloadIn.scatter = false;
-        return;
-    }
-    
-    // Calculate tangent space vectors for sampling methods
-    mat3 TBN = mat3(hitInfo.tangent, hitInfo.bitangent, hitInfo.normal);
-    mat3 invTBN = inverse(TBN);
-    vec3 tView = invTBN * view;
-
-    // Evaluate material sampling
-    payloadIn.direction = TBN * sampleMaterial(payloadIn.seed, hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, 
-                                        hitInfo.transmissionFactor, mat.ior, mat.thicknessFactor == 0.0, mat.attenuationCoefficient, mat.dispersion,
-                                        hitInfo.ffnormal, tView, payloadIn.reflectivity, payloadIn.materialSamplePDF);
-
-    // Evaluate direct light sampling
-    payloadIn.lightSample = vec3(0.0);
-    vec3 lightDir;
-    float lightSamplePDF = 0.0;
-    uint numAnalyticLights = numPointLights + numDirectionalLights;
-
-    bool deltaLight = false;
-    if (numAnalyticLights > 0 && (rnd(payloadIn.seed) < 0.5 || numEmissiveTriangles == 0)) {
-        payloadIn.lightSample = sampleAnalyticLight(payloadIn.seed, hitInfo.pos, hitInfo.normal, lightDir, lightSamplePDF);
-        deltaLight = true;
-    } else if(numEmissiveTriangles > 0) {
-        payloadIn.lightSample = sampleEmissiveTriangle(payloadIn.seed, hitInfo.pos, hitInfo.normal, lightDir, lightSamplePDF);
-    }
-
-    if (payloadIn.lightSample != vec3(0.0)) {
-        lightSamplePDF /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
-        vec3 lightSampleBSDF = materialBSDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor,
-                                        mat.ior, mat.thicknessFactor == 0.0,  mat.attenuationCoefficient, hitInfo.ffnormal, tView, invTBN * lightDir);
-        float MISWeight = 1.0;
-        if (!deltaLight) {
-            float materialSamplePDF = materialPDF(hitInfo.baseColour, hitInfo.metallic, hitInfo.alphaRoughness, hitInfo.anisotropyDirection, hitInfo.transmissionFactor, 
-                                        mat.ior, mat.thicknessFactor == 0.0, hitInfo.ffnormal, tView, invTBN * lightDir);
-            MISWeight = balanceHeuristic(lightSamplePDF, materialSamplePDF);
-        }
-        payloadIn.lightSample *= lightSampleBSDF == vec3(0.0) ? vec3(0.0) : MISWeight * lightSampleBSDF / lightSamplePDF * abs(dot(hitInfo.normal, lightDir));
-    }
-
-    payloadIn.origin = hitInfo.pos + (dot(hitInfo.normal, payloadIn.direction) >= 0.0 ? 1.0 : -1.0) * BIAS * hitInfo.normal;
-    if (pathTracing.sampleCount == 0u && payloadIn.emittedLight == vec3(0.0))
-        payloadIn.emittedLight = payloadIn.reflectivity + payloadIn.lightSample;
+    payloadIn.hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords);
 }

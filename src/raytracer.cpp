@@ -174,32 +174,32 @@ void Raytracer::createRaytracingPipeline() {
 		.setBinding(5u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto materialsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(6u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto pointLightsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(7u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
 	auto directionalLightsBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(8u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
 	auto emissiveSurfacesBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(9u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto emissiveTrianglesBufferLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(10u)
 		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setDescriptorCount(1u)
-		.setStageFlags(vk::ShaderStageFlagBits::eClosestHitKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
+		.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eAnyHitKHR);
 	auto skyboxSamplerLB = vk::DescriptorSetLayoutBinding{}
 		.setBinding(11u)
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
@@ -255,7 +255,7 @@ void Raytracer::createRaytracingPipeline() {
 	auto raytracingPipelineCI = vk::RayTracingPipelineCreateInfoKHR{}
 		.setStages(raytracingShaders->shaderStages)
 		.setGroups(raytracingShaders->shaderGroups)
-		.setMaxPipelineRayRecursionDepth(1u)
+		.setMaxPipelineRayRecursionDepth(0u)
 		.setLayout(*raytracingPipelineLayout);
 	auto raytracingPipelineRV = device->createRayTracingPipelineKHRUnique(nullptr, nullptr, raytracingPipelineCI);
 	EXIT_ON_VULKAN_NON_SUCCESS(raytracingPipelineRV.result);

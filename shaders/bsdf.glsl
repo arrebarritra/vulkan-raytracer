@@ -166,25 +166,26 @@ vec3 sampleGGXVNDF(inout uint previous, vec2 alpha, vec2 anisotropyDirection, ve
 	return vec3(aniSpaceTransform * aniSpaceHalfway.xy, aniSpaceHalfway.z);
 }
 
-float materialPDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDirection, float transmissionFactor, float ior, bool thin, bool ffnormal, vec3 V, vec3 L) {
+float materialPDF(HitInfo hitInfo, vec3 V, vec3 L) {
+	HitMaterial hm = hitInfo.hitMat;
 	vec3 H;
-	float f0Dielectric = (ior - 1) / (ior + 1);
+	float f0Dielectric = (hm.ior - 1) / (hm.ior + 1);
 	f0Dielectric *= f0Dielectric;
 
 	float F_transmission;
 
 	float GGXSamplePDF;
-	float pTransmission = (1 - metallic) * transmissionFactor;
-	float pDiffuse = 0.5 * (1 - metallic);
+	float pTransmission = (1 - hm.metallic) * hm.transmissionFactor;
+	float pDiffuse = 0.5 * (1 - hm.metallic);
 	float NdotL = L.z;
 	if (NdotL < 0) {
-		if (thin) {
+		if (hm.thin) {
 			H = normalize(V + vec3(L.xy, -L.z));
 			float VdotH = dot(V, H);
 			F_transmission = fresnelSchlick(f0Dielectric, VdotH);
-			GGXSamplePDF = GGXVNDFSampleReflectionPDF(alpha, anisotropyDirection, V, H);
+			GGXSamplePDF = GGXVNDFSampleReflectionPDF(hm.alpha, hm.anisotropyDirection, V, H);
 		} else {
-			float eta = ffnormal ? 1.0 / ior : ior;
+			float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
 			H = eta > 1.0 ? normalize(eta * V + L) : -normalize(eta * V + L);
 			float VdotH = dot(V, H);
 			float sinSqThetaOut = eta * eta * (1 - VdotH * VdotH);
@@ -195,20 +196,20 @@ float materialPDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDi
 			} else {
 				F_transmission = 1.0;
 			}
-			GGXSamplePDF = GGXVNDFSampleRefractionPDF(alpha, anisotropyDirection, eta, V, L, H);
+			GGXSamplePDF = GGXVNDFSampleRefractionPDF(hm.alpha, hm.anisotropyDirection, eta, V, L, H);
 		}
 		return pTransmission * (1 - F_transmission) * GGXSamplePDF;
-	} else if (NdotL > 0) {
+	} else {
 		vec3 H = normalize(L + V);
-		GGXSamplePDF = GGXVNDFSampleReflectionPDF(alpha, anisotropyDirection, V, H);
+		GGXSamplePDF = GGXVNDFSampleReflectionPDF(hm.alpha, hm.anisotropyDirection, V, H);
 		float pdf = mix((1 - pTransmission) * GGXSamplePDF, NdotL * PIINV, pDiffuse);
 		if (pTransmission > 0) {
 			float VdotH = dot(V, H);
 			float F_transmission;
-			if (thin) {
+			if (hm.thin) {
 				F_transmission = fresnelSchlick(f0Dielectric, VdotH);
 			} else {
-				float eta = ffnormal ? 1.0 / ior : ior;
+				float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
 				float sinSqThetaOut = eta * eta * (1 - VdotH * VdotH);
 				if (eta <= 1.0) {
 					F_transmission = fresnelSchlick(f0Dielectric, VdotH);
@@ -222,22 +223,33 @@ float materialPDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDi
 		}
 		return pdf;
 	}
-	return 0.0;
 }
 
-vec3 materialBSDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDirection, float transmissionFactor, float ior, bool thin, vec3 attenuationCoefficient, bool ffnormal, vec3 V, vec3 L) {
-	float f0Dielectric = (ior - 1) / (ior + 1);
+vec3 materialBSDF(HitInfo hitInfo, float wavelength, vec3 V, vec3 L) {
+	HitMaterial hm = hitInfo.hitMat;
+
+	float f0Dielectric = (hm.ior - 1) / (hm.ior + 1);
 	f0Dielectric *= f0Dielectric;
-	float pTransmission = (1 - metallic) * transmissionFactor;
+	float pTransmission = (1 - hm.metallic) * hm.transmissionFactor;
 	float NdotV = V.z;
 	float NdotL = L.z;
 
 	float F_dielectric, F_transmission;
 	vec3 F_metallic;
+
+	if (hm.dispersion != 0.0) {
+		// Wavelength is guaranteed to be collapsed during material sampling
+		float wavelengthSq = wavelength * wavelength;
+		float B = (hm.ior - 1) * hm.dispersion / (20 * (INV_LAMBDA_F_SQ - INV_LAMBDA_C_SQ));
+		float A = hm.ior - B * INV_LAMBDA_D_SQ;
+		hm.ior = max(hm.ior + (hm.ior - 1) * hm.dispersion / 20 * (523655 / wavelengthSq - 1.5168), 1);
+	}
+
+	vec3 bsdf = vec3(0.0);
 	if (NdotL < 0) {
 		vec3 H;
-		float eta = ffnormal ? 1.0 / ior : ior;
-		if (thin) {
+		float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
+		if (hm.thin) {
 			H = normalize(V + vec3(L.xy, -L.z));
 			float F_transmission = fresnelSchlick(f0Dielectric, V, H);
 		} else {
@@ -253,29 +265,31 @@ vec3 materialBSDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDi
 			}
 		}
 
-		vec3 bsdf = pTransmission * (1 - F_transmission) * baseColour;
-		bsdf *= thin ? specularBTDF(alpha, anisotropyDirection, V, L, H) : refractiveBTDF(alpha, anisotropyDirection, eta, V, L, H);
-		if (!thin && !ffnormal)
-			bsdf *= exp(-attenuationCoefficient * gl_HitTEXT);
+		bsdf = pTransmission * (1 - F_transmission) * hm.baseColour;
+		bsdf *= hm.thin ? specularBTDF(hm.alpha, hm.anisotropyDirection, V, L, H) : refractiveBTDF(hm.alpha, hm.anisotropyDirection, eta, V, L, H);
+		if (!hm.thin && !hitInfo.frontFace)
+			bsdf *= exp(-hm.attenuationCoefficient * hitInfo.t);
 		return bsdf;
 	} else if (NdotL > 0) {
 		vec3 H = normalize(V + L);
 		float F_dielectric = fresnelSchlick(f0Dielectric, V, H);
-		vec3 F_metallic = fresnelSchlick(baseColour, V, H);
+		vec3 F_metallic = fresnelSchlick(hm.baseColour, V, H);
 
-		float specular = specularBRDF(alpha, anisotropyDirection, V, L, H);
-		vec3 bsdf = mix(
-			mix((1 - transmissionFactor) * diffuseBRDF(baseColour, L), vec3(specular), F_dielectric),
-			F_metallic * specular,
-			metallic);
+		float specular = specularBRDF(hm.alpha, hm.anisotropyDirection, V, L, H);
+
+		if (pTransmission < 1)
+			bsdf += mix(
+				mix((1 - hm.transmissionFactor) * diffuseBRDF(hm.baseColour, L), vec3(specular), F_dielectric),
+				F_metallic * specular,
+				hm.metallic);
 
 		if (pTransmission > 0) {
 			float VdotH = dot(V, H);
 			float F_transmission;
-			if (thin) {
+			if (hm.thin) {
 				F_transmission = fresnelSchlick(f0Dielectric, VdotH);
 			} else {
-				float eta = ffnormal ? 1.0 / ior : ior;
+				float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
 				float sinSqThetaOut = eta * eta * (1 - VdotH * VdotH);
 				if (eta <= 1.0) {
 					F_transmission = fresnelSchlick(f0Dielectric, VdotH);
@@ -285,9 +299,9 @@ vec3 materialBSDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDi
 					F_transmission = 1.0;
 				}
 			}
-			vec3 transmissionBsdf = pTransmission * F_transmission * baseColour * vec3(specular);
-			if (!thin && !ffnormal)
-				transmissionBsdf *= exp(-attenuationCoefficient * gl_HitTEXT);
+			vec3 transmissionBsdf = pTransmission * F_transmission * hm.baseColour * vec3(specular);
+			if (!hm.thin && !hitInfo.frontFace)
+				transmissionBsdf *= exp(-hm.attenuationCoefficient * hitInfo.t);
 			bsdf += transmissionBsdf;
 		}
 		return bsdf;
@@ -295,50 +309,49 @@ vec3 materialBSDF(vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDi
 	return vec3(0.0);
 }
 
-vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, vec2 alpha, vec2 anisotropyDirection, float transmissionFactor, float ior, bool thin, vec3 attenuationCoefficient, float dispersion, bool ffnormal, vec3 view, out vec3 estimator, out float pdf) {
+vec3 sampleMaterial(inout uint previous, HitInfo hitInfo, inout float wavelength, vec3 view, out vec3 estimator, out float pdf) {
+	HitMaterial hm = hitInfo.hitMat;
+
 	estimator = vec3(0.0);
 	vec3 direction = vec3(0.0); vec3 bsdf = vec3(0.0);
 	pdf = 0.0;
 	float NdotL;
 	vec3 halfway;
-	float f0Dielectric = (ior - 1) / (ior + 1);
+	float f0Dielectric = (hm.ior - 1) / (hm.ior + 1);
 	f0Dielectric *= f0Dielectric;
 
 	float F_dielectric, F_transmission;
 	vec3 F_metallic;
 
 	float GGXSamplePDF;
-	float pTransmission = (1 - metallic) * transmissionFactor;
-	float pDiffuse = 0.5 * (1 - metallic);
+	float pTransmission = (1 - hm.metallic) * hm.transmissionFactor;
+	float pDiffuse = 0.5 * (1 - hm.metallic);
 
-	if (dispersion != 0.0) {
-		if (payloadIn.collapsedWavelength == 0.0) {
-			payloadIn.collapsedWavelength = rnd(previous, 400.0, 700.0);
-			baseColour *= spectralColour1931(payloadIn.collapsedWavelength);
+	if (hm.dispersion != 0.0) {
+		if (wavelength == 0.0) {
+			wavelength = rnd(previous, 400.0, 700.0);
+			hm.baseColour *= spectralColour1931(wavelength);
 		}
 
-		float wavelengthSq = payloadIn.collapsedWavelength * payloadIn.collapsedWavelength;
-		float B = (ior - 1) * dispersion / (20 * (INV_LAMBDA_F_SQ - INV_LAMBDA_C_SQ));
-		float A = ior - B * INV_LAMBDA_D_SQ;
-		ior = max(ior + (ior - 1) * dispersion / 20 * (523655 / wavelengthSq - 1.5168), 1);
+		float wavelengthSq = wavelength * wavelength;
+		float B = (hm.ior - 1) * hm.dispersion / (20 * (INV_LAMBDA_F_SQ - INV_LAMBDA_C_SQ));
+		float A = hm.ior - B * INV_LAMBDA_D_SQ;
+		hm.ior = max(hm.ior + (hm.ior - 1) * hm.dispersion / 20 * (523655 / wavelengthSq - 1.5168), 1);
 	}
 
 	if (rnd(previous) < pTransmission) {
-		halfway = sampleGGXVNDF(previous, alpha, anisotropyDirection, view);
-		if (thin) {
+		halfway = sampleGGXVNDF(previous, hm.alpha, hm.anisotropyDirection, view);
+		if (hm.thin) {
 			F_transmission = fresnelSchlick(f0Dielectric, view, halfway);
 			direction = reflect(-view, halfway);
-			if (direction.z < 0) {
-				estimator = vec3(0.0);
-				return vec3(0.0);
-			}
+			if (direction.z < 0) return vec3(0.0);
 			
-			GGXSamplePDF = GGXVNDFSampleReflectionPDF(alpha, anisotropyDirection, view, halfway);
+			GGXSamplePDF = GGXVNDFSampleReflectionPDF(hm.alpha, hm.anisotropyDirection, view, halfway);
 			if (rnd(previous) > F_transmission)
 				direction.z *= -1; // transmission
 			NdotL = direction.z;
 		} else {
-			float eta = ffnormal ? 1.0 / ior : ior;
+			float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
 			float VdotH = dot(view, halfway);
 			float sinSqThetaOut = eta * eta * (1 - VdotH * VdotH);
 			
@@ -352,40 +365,40 @@ vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, vec2 a
 
 			if (rnd(previous) < F_transmission) {
 				direction = reflect(-view, halfway);
-				GGXSamplePDF = GGXVNDFSampleReflectionPDF(alpha, anisotropyDirection, view, halfway);
+				GGXSamplePDF = GGXVNDFSampleReflectionPDF(hm.alpha, hm.anisotropyDirection, view, halfway);
 				NdotL = direction.z;
 				if (NdotL < 0) return vec3(0.0);
 			} else {
 				direction = refract(-view, halfway, eta);
-				GGXSamplePDF = GGXVNDFSampleRefractionPDF(alpha, anisotropyDirection, eta, view, direction, halfway);
+				GGXSamplePDF = GGXVNDFSampleRefractionPDF(hm.alpha, hm.anisotropyDirection, eta, view, direction, halfway);
 				NdotL = direction.z;
 				if (NdotL > 0) return vec3(0.0);
 			}
 		}
 
 		F_dielectric = fresnelSchlick(f0Dielectric, view, halfway);
-		F_metallic = fresnelSchlick(baseColour, view, halfway);
+		F_metallic = fresnelSchlick(hm.baseColour, view, halfway);
 	} else {
 		if (rnd(previous) < pDiffuse) {
 			direction = sampleCosineHemisphere(previous);
 			halfway = normalize(view + direction);
 		} else {
-			halfway = sampleGGXVNDF(previous, alpha, anisotropyDirection, view);
+			halfway = sampleGGXVNDF(previous, hm.alpha, hm.anisotropyDirection, view);
 			direction = reflect(-view, halfway);
 		}
 		
 		NdotL = direction.z;
 		if (NdotL < 0) return vec3(0.0);
 
-		GGXSamplePDF = GGXVNDFSampleReflectionPDF(alpha, anisotropyDirection, view, halfway);		
+		GGXSamplePDF = GGXVNDFSampleReflectionPDF(hm.alpha, hm.anisotropyDirection, view, halfway);		
 		F_dielectric = fresnelSchlick(f0Dielectric, view, halfway);
-		F_metallic = fresnelSchlick(baseColour, view, halfway);
+		F_metallic = fresnelSchlick(hm.baseColour, view, halfway);
 
-		float eta = ffnormal ? 1.0 / ior : ior;
+		float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
 		float VdotH = dot(view, halfway);
 		float sinSqThetaOut = eta * eta * (1 - VdotH * VdotH);
 
-		if (thin || eta <= 1.0) {
+		if (hm.thin || eta <= 1.0) {
 			F_transmission = fresnelSchlick(f0Dielectric, VdotH);
 		} else if (sinSqThetaOut <= 1) {
 			F_transmission = fresnelSchlick(f0Dielectric, sqrt(1 - sinSqThetaOut));
@@ -395,29 +408,34 @@ vec3 sampleMaterial(inout uint previous, vec3 baseColour, float metallic, vec2 a
 	}
 
 	if (NdotL < 0) {
-		float eta = ffnormal ? 1.0 / ior : ior;
-		bsdf = pTransmission * (1 - F_transmission) * baseColour;
-		bsdf *= thin ? specularBTDF(alpha, anisotropyDirection, view, direction, halfway) : refractiveBTDF(alpha, anisotropyDirection, eta, view, direction, halfway);
-		if (!thin && !ffnormal) {
-			bsdf *= exp(-attenuationCoefficient * gl_HitTEXT);
+		float eta = hitInfo.frontFace ? 1.0 / hm.ior : hm.ior;
+		bsdf = pTransmission * (1 - F_transmission) * hm.baseColour;
+		bsdf *= hm.thin ? specularBTDF(hm.alpha, hm.anisotropyDirection, view, direction, halfway) : refractiveBTDF(hm.alpha, hm.anisotropyDirection, eta, view, direction, halfway);
+		if (!hm.thin && !hitInfo.frontFace) {
+			bsdf *= exp(-hm.attenuationCoefficient * hitInfo.t);
 		}
 
 		pdf = pTransmission * (1 - F_transmission) * GGXSamplePDF;
 	} else {
-		float specular = specularBRDF(alpha, anisotropyDirection, view, direction, halfway);
-		bsdf = mix(
-			mix((1 - transmissionFactor) * diffuseBRDF(baseColour, direction), vec3(specular), F_dielectric),
-			F_metallic * specular,
-			metallic);
-		pdf = mix((1 - pTransmission) * GGXSamplePDF, NdotL * PIINV, pDiffuse);
+		float specular = specularBRDF(hm.alpha, hm.anisotropyDirection, view, direction, halfway);
+		
+		if (pTransmission < 1) {
+			bsdf += mix(
+				mix((1 - hm.transmissionFactor) * diffuseBRDF(hm.baseColour, direction), vec3(specular), F_dielectric),
+				F_metallic * specular,
+				hm.metallic);
+			pdf += mix((1 - pTransmission) * GGXSamplePDF, NdotL * PIINV, pDiffuse);
+		}
+
 		if (pTransmission > 0) {
-			vec3 transmissionBsdf = pTransmission * F_transmission * baseColour * vec3(specular);
-			if (!thin && !ffnormal)
-				transmissionBsdf *= exp(-attenuationCoefficient * gl_HitTEXT);
+			vec3 transmissionBsdf = pTransmission * F_transmission * hm.baseColour * vec3(specular);
+			if (!hm.thin && !hitInfo.frontFace)
+				transmissionBsdf *= exp(-hm.attenuationCoefficient * hitInfo.t);
 			bsdf += transmissionBsdf;
 			pdf += pTransmission * F_transmission * GGXSamplePDF;
 		}
 	}
+
 	estimator = bsdf == vec3(0.0) ? vec3(0.0) : bsdf / pdf * abs(NdotL);
 	return direction;
 }

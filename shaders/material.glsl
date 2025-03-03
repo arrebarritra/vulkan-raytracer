@@ -1,3 +1,6 @@
+#ifndef MATERIAL_GLSL
+#define MATERIAL_GLSL
+
 struct Material {
 	vec4 baseColourFactor;
 	int alphaMode;
@@ -11,16 +14,8 @@ struct Material {
 	float anisotropyStrength, anisotropyRotation;
 	float dispersion;
 	int baseColourTexIdx, metallicRoughnessTexIdx, normalTexIdx, emissiveTexIdx, transmissionTexIdx, anisotropyTexIdx;
-	bool doubleSided;
-};
-
-struct ShaderMaterial {
-	vec3 albedo, emissive;
-	float alpha, metallic;
-	float transmission;
-	float attenuationDistance;
-	vec3 attenuationColour;
-	float ior;
 };
 
 layout(binding = 6, set = 0, scalar) readonly buffer Materials { Material materials[]; };
+
+#endif

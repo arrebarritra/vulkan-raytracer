@@ -16,10 +16,10 @@ using Index = uint32_t;
 
 struct GeometryInfo {
 	vk::DeviceAddress vertexBufferAddress, indexBufferAddress;
-	uint32_t materialIdx;
+	uint32_t materialIdx, emissiveSurfaceIdx;
 
-	GeometryInfo(vk::DeviceAddress vertexBufferAddress, vk::DeviceAddress indexBufferAddress, uint32_t materialIdx)
-		: vertexBufferAddress(vertexBufferAddress), indexBufferAddress(indexBufferAddress), materialIdx(materialIdx) {}
+	GeometryInfo(vk::DeviceAddress vertexBufferAddress, vk::DeviceAddress indexBufferAddress, uint32_t materialIdx, uint32_t emissiveSurfaceIdx = -1u)
+		: vertexBufferAddress(vertexBufferAddress), indexBufferAddress(indexBufferAddress), materialIdx(materialIdx), emissiveSurfaceIdx(emissiveSurfaceIdx) {}
 };
 
 class Mesh {

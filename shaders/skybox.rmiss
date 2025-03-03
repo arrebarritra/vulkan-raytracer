@@ -23,7 +23,5 @@ vec2 dirToUV(vec3 v) {
 
 void main() {
     vec2 uv = dirToUV(gl_WorldRayDirectionEXT);
-    payload.emittedLight = pathTracing.skyboxStrength * texture(skyboxTexture, uv).rgb;
-    payload.lightSample = vec3(0.0);
-    payload.scatter = false;
+    payload.hitInfo.hitMat.emissiveColour = pathTracing.skyboxStrength * texture(skyboxTexture, uv).rgb;
 }

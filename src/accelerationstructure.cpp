@@ -172,7 +172,7 @@ void AccelerationStructure::buildTLAS(std::unique_ptr<Buffer>& instanceBuffer, s
 								   .setInstanceCustomIndex(mesh.primitiveOffset + i)
 								   .setMask(objectMask)
 								   .setInstanceShaderBindingTableRecordOffset(0u)
-								   .setFlags(mat.doubleSided ? vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable : vk::GeometryInstanceFlagBitsKHR{})
+								   .setFlags(vk::GeometryInstanceFlagBitsKHR{})
 								   .setAccelerationStructureReference(device->getAccelerationStructureAddressKHR(*blas[mesh.primitiveOffset + i])));
 		}
 	}

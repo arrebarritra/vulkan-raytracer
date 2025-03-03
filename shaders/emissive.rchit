@@ -15,17 +15,17 @@
 layout(location = 2) rayPayloadInEXT EmissivePayload payload;
 hitAttributeEXT vec2 attribs;
 
-struct HitInfo {
+struct EmissiveHitInfo {
     vec3 normal, emissiveColour;
 };
 
-HitInfo unpackTriangle(uint idx, vec3 weights) {
+EmissiveHitInfo unpackTriangle(uint idx, vec3 weights) {
     GeometryInfo geometryInfo = geometryInfos[gl_InstanceCustomIndexEXT];
     Material material = materials[geometryInfo.materialIdx];
     Indices indexBuffer = Indices(geometryInfo.indexBufferAddress);
     Vertices vertexBuffer = Vertices(geometryInfo.vertexBufferAddress);
     
-    HitInfo hitInfo;
+    EmissiveHitInfo hitInfo;
     hitInfo.normal = vec3(0.0);
     vec2 uv = vec2(0.0);
     for (int i = 0; i < 3; i++) {
@@ -46,7 +46,7 @@ HitInfo unpackTriangle(uint idx, vec3 weights) {
 void main() {
     if (gl_InstanceCustomIndexEXT == payload.instanceGeometryIdx && gl_PrimitiveID == payload.instancePrimitiveIdx) {
         const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-        HitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords);
+        EmissiveHitInfo hitInfo = unpackTriangle(gl_PrimitiveID, barycentricCoords);
 
         if (hitInfo.emissiveColour == vec3(0.0)) return;
         payload.instanceHit = true;

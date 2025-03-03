@@ -15,7 +15,6 @@ struct Material {
 	float anisotropyStrength = 0.0f, anisotropyRotation = 0.0f;
 	float dispersion = 0.0f;
 	int baseColourTexIdx = -1, metallicRoughnessTexIdx = -1, normalTexIdx = -1, emissiveTexIdx = -1, transmissionTexIdx = -1, anisotropyTexIdx = -1;
-	bool doubleSided = false; // GLSL bools 4 bytes
 };
 
 }

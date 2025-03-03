@@ -165,8 +165,6 @@ void Scene::loadModel(std::filesystem::path path, SceneObject* parent, glm::mat4
 			if (gltfMaterial.normalTexture.index != -1)
 				material.normalTexIdx = baseTextureOffset + model.textures[gltfMaterial.normalTexture.index].source;
 
-			material.doubleSided = gltfMaterial.doubleSided;
-
 			// Alpha
 			if (gltfMaterial.alphaMode == "OPAQUE")
 				material.alphaMode = 0;
@@ -392,6 +390,7 @@ void Scene::processModelRecursive(SceneObject* parent, const tinygltf::Model& mo
 				es.geometryIdx = meshPool[nodeMeshIdx].primitiveOffset + i;
 				es.baseEmissiveTriangleIdx = emissiveTriangles.size();
 				es.transform = worldTransform;
+				geometryInfos[mesh.primitiveOffset + i].emissiveSurfaceIdx = emissiveSurfaces.size();
 				emissiveSurfaces.push_back(es);
 				processEmissivePrimitive(model, gltfPrimitive, worldTransform);
 			}
@@ -448,7 +447,7 @@ void Scene::processEmissivePrimitive(const tinygltf::Model& model, const tinyglt
 	// Calculate intensity/area heuristic for each triangle
 	uint32_t baseMaterialOffset = materials.size() - model.materials.size();
 	Material& mat = materials[primitive.material - baseMaterialOffset];
-	for (size_t i = 0; i < indices.size() / 9; i++) {
+	for (size_t i = 0; i < indices.size() / 3; i++) {
 		std::array v = {
 			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[3 * indices[3 * i]]), 1.0f)),
 			glm::vec3(worldTransform * glm::vec4(glm::make_vec3(&positionBuffer[3 * indices[3 * i + 1]]), 1.0f)),

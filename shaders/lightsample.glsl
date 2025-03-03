@@ -2,6 +2,10 @@
 #define LIGHT_SAMPLE_GLSL
 
 #include "light.glsl"
+#include "material.glsl"
+#include "bsdf.glsl"
+#include "geometry.glsl"
+#include "sampling.glsl"
 
 layout(location = 1) rayPayloadEXT ShadowPayload shadowRayPayload;
 layout(location = 2) rayPayloadEXT EmissivePayload emissiveRayPayload;
@@ -18,10 +22,10 @@ vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal, out vec3 lig
         lightDir = lightRay / lightDist;
 
         vec3 rayOrigin = origin + (dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0) * BIAS * normal;
-        shadowRayPayload.seed = payloadIn.seed;
+        shadowRayPayload.seed = seed;
         shadowRayPayload.shadowRayMiss = false;
         traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 1, 0, 1, rayOrigin, 0, lightDir, lightDist, 1);
-        payloadIn.seed = shadowRayPayload.seed;
+        seed = shadowRayPayload.seed;
         pdf = pFactor / numPointLights;
         if (shadowRayPayload.shadowRayMiss) {
             float attenuation = light.range == 0.0 ? 1.0 : max(1.0 - pow(lightDist / light.range, 4), 0.0);
@@ -33,12 +37,12 @@ vec3 sampleAnalyticLight(inout uint seed, vec3 origin, vec3 normal, out vec3 lig
         int lightIdx = rnd(seed, int(numPointLights), int(numPointLights + numDirectionalLights - 1));
         DirectionalLight light = directionalLights[lightIdx - numPointLights];
 
-        shadowRayPayload.seed = payloadIn.seed;
+        shadowRayPayload.seed = seed;
         shadowRayPayload.shadowRayMiss = false;
         lightDir = -light.direction;
         vec3 rayOrigin = origin + (dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0) * BIAS * normal;
         traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 1, 0, 1, rayOrigin, 0, lightDir, INF, 1);
-        payloadIn.seed = shadowRayPayload.seed;
+        seed = shadowRayPayload.seed;
         pdf = pFactor / numDirectionalLights;
         if (shadowRayPayload.shadowRayMiss) {
             return light.colour * light.intensity;
@@ -120,20 +124,52 @@ vec3 sampleEmissiveTriangle(inout uint seed, vec3 origin, vec3 normal, out vec3 
     lightDir = lightRay / lightDist;
     vec3 rayOrigin = origin + (dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0) * BIAS * normal;
 
-    emissiveRayPayload.seed = payloadIn.seed;
+    emissiveRayPayload.seed = seed;
     emissiveRayPayload.instanceGeometryIdx = es.geometryIdx;
     emissiveRayPayload.instancePrimitiveIdx = primitiveIdx;
     emissiveRayPayload.instanceHit = false;
     traceRayEXT(topLevelAS, gl_RayFlagsNoneEXT, 0xFF, 2, 0, 2, rayOrigin, 0, lightDir, lightDist + EPS, 2);
 
-    payloadIn.seed = emissiveRayPayload.seed;
+    seed = emissiveRayPayload.seed;
     if (emissiveRayPayload.instanceHit) {
         emissivePDFPayload.pdf = 0;
-        traceRayEXT(topLevelAS, gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsNoOpaqueEXT, 1u << 1, 3, 0, 2, origin, 0, lightDir, INF, 3);
+        traceRayEXT(topLevelAS, gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsNoOpaqueEXT, 1u << 1, 3, 0, 2, rayOrigin, 0, lightDir, INF, 3);
         pdf = emissivePDFPayload.pdf;
         return emissiveRayPayload.emittedLight;
     }
     return vec3(0.0);
+}
+
+vec3 sampleLights(inout uint seed, HitInfo hitInfo, float wavelength, vec3 view, mat3 worldToTangent) {
+    vec3 lightSample = vec3(0.0);
+    vec3 lightDir;
+    float lightSamplePDF = 0.0;
+    uint numAnalyticLights = numPointLights + numDirectionalLights;
+
+    bool deltaLight = false;
+    if (numAnalyticLights > 0 && (rnd(seed) < 0.5 || numEmissiveTriangles == 0)) {
+        lightSample = sampleAnalyticLight(seed, hitInfo.pos, hitInfo.normal, lightDir, lightSamplePDF);
+        deltaLight = true;
+    } else if (numEmissiveTriangles > 0) {
+        lightSample = sampleEmissiveTriangle(seed, hitInfo.pos, hitInfo.normal, lightDir, lightSamplePDF);
+    }
+
+    if (lightSample != vec3(0.0)) {
+        vec3 tView = worldToTangent * view;
+        vec3 tLightDir = worldToTangent * lightDir;
+
+        lightSamplePDF /= max(1.0, float(numAnalyticLights > 0) + float(numEmissiveTriangles > 0));
+        vec3 lightSampleBSDF = materialBSDF(hitInfo, wavelength, tView, tLightDir);
+        float MISWeight = 1.0;
+        if (!deltaLight) {
+            float materialSamplePDF = materialPDF(hitInfo, tView, tLightDir);
+            MISWeight = balanceHeuristic(lightSamplePDF, materialSamplePDF);
+        }
+        lightSample *= lightSampleBSDF == vec3(0.0) ? vec3(0.0) : MISWeight * lightSampleBSDF / lightSamplePDF * abs(dot(hitInfo.normal, lightDir));
+        if (any(isnan(lightSample))) debugPrintfEXT("(%v3f), %f, %f\n", hitInfo.hitMat.emissiveColour, lightSamplePDF, MISWeight);
+    }
+
+    return lightSample;
 }
 
 #endif
