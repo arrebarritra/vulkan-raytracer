@@ -59,9 +59,9 @@ void main() {
         traceRayEXT(topLevelAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, EPS, direction, INF, 0);
         tangentToWorld = mat3(payload.hitInfo.tangent, payload.hitInfo.bitangent, payload.hitInfo.normal);
         worldToTangent = transpose(tangentToWorld);
-
+        
         // End traversal if emissive hit or reached max ray depth
-        if (payload.hitInfo.hitMat.emissiveColour != vec3(0.0) || bounce == pathTracing.maxRayDepth || (pathTracing.sampleCount == 0u && bounce == 1)) {
+        if (payload.hitInfo.t < 0 || payload.hitInfo.hitMat.emissiveColour != vec3(0.0) || bounce == pathTracing.maxRayDepth || (pathTracing.sampleCount == 0u && bounce == 1)) {
             vec3 emissive = payload.hitInfo.hitMat.emissiveColour;
             
             if (emissive != vec3(0.0) && bounce != 0) {
