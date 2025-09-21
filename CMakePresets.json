@@ -48,7 +48,6 @@
         "paths"
       ],
       "hidden": true,
-      "generator": "Ninja",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -61,7 +60,6 @@
         "paths"
       ],
       "hidden": true,
-      "generator": "Ninja",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
