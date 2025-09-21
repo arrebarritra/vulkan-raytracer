@@ -81,7 +81,7 @@ foreach(source IN LISTS SHADER_FILES)
   add_custom_command(
     COMMAND ${glslc_executable} --target-spv=spv1.4 -o ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv ${source} $<IF:$<CONFIG:Debug,RelWithDebInfo>,"-DDEBUG -O0","-DRELEASE -O">
     OUTPUT ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv
-    DEPENDS ${source} ${SHADER_BINARY_DIR}
+    DEPENDS ${source}
     COMMENT "Compiling ${FILENAME}: ${glslc_executable} --target-spv=spv1.4 -o ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv ${source} $<IF:$<CONFIG:Debug,RelWithDebInfo>,-DDEBUG -O0,-DRELEASE -O>"
   )
   list(APPEND SPV_SHADERS ${SHADER_BINARY_DIR}/$<IF:$<CONFIG:Debug,RelWithDebInfo>,Debug,Release>/${FILENAME}.spv)
