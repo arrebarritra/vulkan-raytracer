@@ -6,10 +6,10 @@
 	url = https://github.com/g-truc/glm.git
 [submodule "external/stb"]
 	path = external/stb
-	url = git@github.com:nothings/stb.git
+	url = https://github.com/nothings/stb.git
 [submodule "external/tinygltf"]
 	path = external/tinygltf
-	url = git@github.com:syoyo/tinygltf.git
+	url = https://github.com/syoyo/tinygltf.git
 [submodule "external/args"]
 	path = external/args
-	url = git@github.com:Taywee/args.git
+	url = https://github.com/Taywee/args.git
