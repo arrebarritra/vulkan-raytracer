@@ -12,15 +12,21 @@ Vulkan raytracer is, despite its name, a path tracer written in Vulkan which mak
 # Building
 
 ## Dependencies
-Vulkan SDK and GLSLC are required dependencies.
+[Vulkan SDK](https://vulkan.lunarg.com/sdk/home) and GLSLC (comes with Vulkan SDK) are required dependencies.
 
 ## Build
-1. Run `git submodule update --init --recursive` to fetch external dependencies (see `external` folder)
-2. Run `cmake source-directory` to build project
+Vulkan raytracer can be easily built with CMake.
 
+```bash
+git clone https://github.com/arrebarritra/vulkan-raytracer.git
+git submodule update --init --recursive
+cd vulkan-raytracer
+cmake --preset preset-name
+cmake --build out/build/preset-name
+```
 
 # Running
-Vulkan raytracer requires a GPU that supports raytracing (check [Vulkan Hardware Database](https://vulkan.gpuinfo.org/listdevices.php) to see if your GPU is supported).
+Vulkan raytracer requires a GPU that supports raytracing. Check [Vulkan Hardware Database](https://vulkan.gpuinfo.org/listdevices.php) to see if your GPU is supported.
 
 
 ## Example
